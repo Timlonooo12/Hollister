@@ -112,7 +112,33 @@ class TestFailures:
         monitor = build(settings, config, state, fake_notifier, ["<html>nothing useful</html>"])
         tick = await monitor.check_once()
         assert tick.ok is False
-        assert "no size" in (tick.error or "")
+        assert "aucune taille lisible" in (tick.error or "")
+
+    async def test_sizes_without_stock_state_never_alert(self, settings, config, state, fake_notifier):
+        """Regression: a page listing sizes with no stock state (rendered in
+        JavaScript) once produced "XS, S disponibles" for a sold-out product."""
+        body = """
+        <div class="size-selector">
+          <button data-size="XS">XS</button>
+          <button data-size="S">S</button>
+          <button data-size="M">M</button>
+        </div>
+        """
+        monitor = build(settings, config, state, fake_notifier, [body])
+        tick = await monitor.check_once()
+        await drain(monitor)
+        assert tick.ok is False
+        assert tick.sizes == {}
+        assert fake_notifier.messages == []
+        assert "JavaScript" in (tick.error or "")
+
+    async def test_repeated_unreadable_pages_warn_the_owner(self, settings, config, state, fake_notifier):
+        monitor = build(settings, config, state, fake_notifier, ['<button data-size="XS">XS</button>'])
+        for _ in range(3):
+            await monitor.check_once()
+        await drain(monitor)
+        assert any("dégradée" in message for message in fake_notifier.messages)
+        assert not any("DISPO" in message for message in fake_notifier.messages)
 
     async def test_owner_is_warned_after_repeated_failures(self, settings, config, state, fake_notifier):
         monitor = build(settings, config, state, fake_notifier, ["<html></html>"])

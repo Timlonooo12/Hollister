@@ -85,11 +85,18 @@ class Monitor:
             html_fallback=self.settings.html_fallback,
         )
         if not parsed.found:
-            return self._record_failure(
-                result,
-                "page fetched but no size could be read (the page layout may have changed — run `diagnose`)",
-                strategy=parsed.strategy,
-            )
+            if parsed.strategy == "html-no-stock-state":
+                message = (
+                    "les tailles sont listées dans la page mais sans état de stock : "
+                    "ce site charge la disponibilité en JavaScript. Lance `python -m stockwatch diagnose` "
+                    "et renseigne STOCKWATCH_API_URL avec l'endpoint trouvé"
+                )
+            else:
+                message = (
+                    "page récupérée mais aucune taille lisible (structure changée ?) — "
+                    "lance `python -m stockwatch diagnose`"
+                )
+            return self._record_failure(result, message, strategy=parsed.strategy)
 
         watched = list(self.config.sizes)
         if all(parsed.sizes.get(size) is None for size in watched):
@@ -173,12 +180,12 @@ class Monitor:
             self._degraded_notified = True
             self._spawn(
                 self.notifier.broadcast(
-                    "⚠️ <b>Surveillance dégradée</b>\n"
+                    "⚠️ <b>Surveillance dégradée — aucune alerte ne partira</b>\n"
                     f"{self.consecutive_errors} échecs consécutifs.\n"
-                    f"Dernière erreur : <code>{html.escape(message[:300])}</code>\n\n"
-                    "Je continue d'essayer avec un délai progressif. "
-                    "Si ça persiste : le site bloque les requêtes — ajoute un cookie de navigateur "
-                    "(<code>STOCKWATCH_COOKIE</code>) ou augmente <code>STOCKWATCH_POLL_INTERVAL</code>.",
+                    f"Cause : <code>{html.escape(message[:300])}</code>\n\n"
+                    "Je continue d'essayer avec un délai progressif, et je préviens dès que c'est rétabli. "
+                    "Je préfère te dire que je ne sais pas lire le stock plutôt que t'annoncer une "
+                    "disponibilité qui n'existe pas.",
                     silent=True,
                 )
             )

@@ -297,13 +297,21 @@ def iter_json_blobs(body: str) -> Iterator[Any]:
 
 @dataclass(frozen=True)
 class SizeObservation:
-    """One (size, availability) pair found somewhere in the page."""
+    """One (size, availability) pair found somewhere in the page.
+
+    `confident` is False for a guess rather than a reading — a size button
+    present in the markup with no stock state attached. Such an observation is
+    reported by `diagnose` but never drives an alert: on a page whose stock is
+    rendered in JavaScript, every size looks "not disabled" and the bot would
+    announce a restock that never happened.
+    """
 
     size: str
     available: bool
     source: str
     detail: str = ""
     focused: bool = False
+    confident: bool = True
 
 
 @dataclass
@@ -311,6 +319,11 @@ class ParseResult:
     sizes: dict[str, bool] = field(default_factory=dict)
     observations: list[SizeObservation] = field(default_factory=list)
     strategy: str = "none"
+
+    @property
+    def guessed_sizes(self) -> dict[str, bool]:
+        """What the non-confident observations suggested — diagnostics only."""
+        return merge_observations([o for o in self.observations if not o.confident])
 
     @property
     def found(self) -> bool:
@@ -321,6 +334,12 @@ class ParseResult:
 
 
 _ID_KEYS = {"productid", "id", "sku", "productcode", "masterproductid", "parentid", "collectionid"}
+# Ids narrow enough to pair a size label with a stock level. "productid" is
+# deliberately absent: it names the whole product, not one variant.
+_JOIN_ID_KEYS = {
+    "skuid", "sku", "variantid", "variantcode", "itemid", "productitemid",
+    "styleid", "id", "code", "key", "upc", "ean", "gtin",
+}
 _MAX_DEPTH = 24
 
 
@@ -332,8 +351,32 @@ def product_id_from_url(url: str) -> str | None:
     return matches[-1] if matches else None
 
 
-def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: list[SizeObservation]) -> None:
-    if depth > _MAX_DEPTH or len(out) > 500:
+@dataclass
+class _Collector:
+    """What one pass over the JSON documents found."""
+
+    observations: list[SizeObservation] = field(default_factory=list)
+    # Split schemas keep the size labels and the stock levels in separate
+    # structures, joined by a sku/variant id — collect both halves.
+    size_by_id: dict[str, tuple[str, bool]] = field(default_factory=dict)
+    stock_by_id: dict[str, tuple[bool, str]] = field(default_factory=dict)
+
+    def full(self) -> bool:
+        return len(self.observations) > 500 or len(self.size_by_id) > 2000
+
+
+def _ids_of(node: dict[str, Any]) -> list[str]:
+    values = []
+    for raw_key, value in node.items():
+        if _key(raw_key) in _JOIN_ID_KEYS and isinstance(value, str | int) and not isinstance(value, bool):
+            text = str(value).strip()
+            if text:
+                values.append(text)
+    return values
+
+
+def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: _Collector) -> None:
+    if depth > _MAX_DEPTH or out.full():
         return
     if isinstance(node, dict):
         here = focused
@@ -345,7 +388,7 @@ def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: lis
         size = size_from_mapping(node)
         available = availability_from_mapping(node)
         if size and available is not None:
-            out.append(
+            out.observations.append(
                 SizeObservation(
                     size=size,
                     available=available,
@@ -354,11 +397,31 @@ def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: lis
                     focused=here,
                 )
             )
+        elif size:
+            for ident in _ids_of(node):
+                out.size_by_id.setdefault(ident, (size, here))
+        elif available is not None:
+            for ident in _ids_of(node):
+                out.stock_by_id.setdefault(ident, (available, _short_repr(node)))
         for value in node.values():
             _walk(value, product_id, here, depth + 1, out)
     elif isinstance(node, list):
         for value in node:
             _walk(value, product_id, focused, depth + 1, out)
+
+
+def _joined_observations(collector: _Collector) -> list[SizeObservation]:
+    """Pair `{id, size}` entries with `{id, inStock}` entries found elsewhere."""
+    joined: list[SizeObservation] = []
+    for ident, (size, focused) in collector.size_by_id.items():
+        stock = collector.stock_by_id.get(ident)
+        if stock is None:
+            continue
+        available, detail = stock
+        joined.append(
+            SizeObservation(size=size, available=available, source="json-join", detail=detail, focused=focused)
+        )
+    return joined
 
 
 def _short_repr(node: dict[str, Any]) -> str:
@@ -387,10 +450,16 @@ _SIZE_ATTRS = ("aria-label", "data-size", "data-value", "data-sizecode", "title"
 def parse_html_size_buttons(html: str) -> list[SizeObservation]:
     """Last-resort heuristic: read the size selector out of the markup.
 
-    A size element that renders without a `disabled` attribute and without a
-    sold-out class is treated as available.
+    Only trustworthy when the markup actually expresses stock state somewhere —
+    a `disabled` attribute, a sold-out class, a `data-instock` flag. If the page
+    lists sizes without a single unavailability marker, its stock is rendered
+    client-side (or behind an API call) and the markup says nothing: every
+    observation is then flagged `confident=False` so it can be shown by
+    `diagnose` but never trigger an alert.
     """
     observations: list[SizeObservation] = []
+    explicit_flags: list[bool] = []
+
     for match in _TAG_RE.finditer(html):
         attrs_raw = match.group("attrs") or ""
         attrs = {
@@ -408,26 +477,38 @@ def parse_html_size_buttons(html: str) -> list[SizeObservation]:
 
         lowered = attrs_raw.lower()
         available: bool | None = None
-        for name in ("data-instock", "data-in-stock", "data-available", "data-availability"):
+        explicit = False
+        for name in ("data-instock", "data-in-stock", "data-available", "data-availability", "data-stock"):
             if name in attrs:
                 available = status_to_bool(attrs[name])
                 if available is not None:
+                    explicit = True
                     break
         if available is None:
             disabled = re.search(r"(?<![\w-])disabled(?![\w-])", lowered) is not None
             disabled = disabled or attrs.get("aria-disabled", "").lower() == "true"
             disabled = disabled or any(marker in lowered for marker in _UNAVAILABLE_MARKERS)
             available = not disabled
+            explicit = disabled
 
         observations.append(
-            SizeObservation(
-                size=size,
-                available=available,
-                source="html",
-                detail=attrs_raw.strip()[:220],
-            )
+            SizeObservation(size=size, available=available, source="html", detail=attrs_raw.strip()[:220])
         )
-    return observations
+        explicit_flags.append(explicit)
+
+    # One size marked sold out proves the markup carries stock state, so the
+    # unmarked siblings really are available. No marker anywhere proves nothing.
+    trustworthy = any(explicit_flags)
+    return [
+        SizeObservation(
+            size=observation.size,
+            available=observation.available,
+            source="html",
+            detail=observation.detail,
+            confident=trustworthy,
+        )
+        for observation in observations
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -448,13 +529,24 @@ def merge_observations(observations: list[SizeObservation]) -> dict[str, bool]:
 
 
 def parse_availability(body: str, *, product_id: str | None = None, html_fallback: bool = True) -> ParseResult:
-    """Extract `{size: available}` from a product page or API response."""
+    """Extract `{size: available}` from a product page or API response.
+
+    `sizes` only ever holds readings the parser can defend; a guess (see
+    `SizeObservation.confident`) stays out of it and shows up in
+    `guessed_sizes`, which `diagnose` prints and the watcher ignores.
+    """
     if not body:
         return ParseResult()
 
-    observations: list[SizeObservation] = []
+    collector = _Collector()
     for blob in iter_json_blobs(body):
-        _walk(blob, product_id, False, 0, observations)
+        _walk(blob, product_id, False, 0, collector)
+
+    observations = collector.observations
+    strategy = "json"
+    if not observations:
+        observations = _joined_observations(collector)
+        strategy = "json-join"
 
     if observations:
         focused = [observation for observation in observations if observation.focused]
@@ -462,16 +554,19 @@ def parse_availability(body: str, *, product_id: str | None = None, html_fallbac
         return ParseResult(
             sizes=merge_observations(chosen),
             observations=chosen,
-            strategy="json-focused" if focused else "json",
+            strategy=f"{strategy}-focused" if focused else strategy,
         )
 
     if html_fallback:
         html_observations = parse_html_size_buttons(body)
         if html_observations:
+            confident = [observation for observation in html_observations if observation.confident]
             return ParseResult(
-                sizes=merge_observations(html_observations),
+                sizes=merge_observations(confident),
                 observations=html_observations,
-                strategy="html-heuristic",
+                # Sizes rendered without any stock state: readable page, but the
+                # stock is not in it. Reported as unreadable, never as available.
+                strategy="html-heuristic" if confident else "html-no-stock-state",
             )
 
     return ParseResult()

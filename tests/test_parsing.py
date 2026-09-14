@@ -124,6 +124,33 @@ class TestJsonExtraction:
         assert parse_availability(body).found is False
 
 
+class TestSplitSchemas:
+    def test_sizes_and_stock_joined_by_sku(self):
+        payload = {
+            "sizes": [{"skuId": "A1", "label": "XS"}, {"skuId": "A2", "label": "S"}],
+            "inventory": [{"skuId": "A1", "inStock": False}, {"skuId": "A2", "inStock": True}],
+        }
+        result = parse_availability(json.dumps(payload))
+        assert result.strategy == "json-join"
+        assert result.sizes == {"XS": False, "S": True}
+
+    def test_a_size_with_no_matching_stock_entry_is_dropped(self):
+        payload = {
+            "sizes": [{"skuId": "A1", "label": "XS"}],
+            "inventory": [{"skuId": "ZZ", "inStock": True}],
+        }
+        assert parse_availability(json.dumps(payload)).found is False
+
+    def test_direct_readings_win_over_a_join(self):
+        payload = {
+            "variants": [{"skuId": "A1", "size": "XS", "inStock": False}],
+            "inventory": [{"skuId": "A1", "inStock": True}],
+        }
+        result = parse_availability(json.dumps(payload))
+        assert result.strategy == "json"
+        assert result.sizes == {"XS": False}
+
+
 class TestHtmlFallback:
     def test_disabled_buttons_are_out_of_stock(self):
         html = """
@@ -139,6 +166,26 @@ class TestHtmlFallback:
     def test_aria_label_and_explicit_flag(self):
         html = '<li aria-label="Taille XS" data-instock="false"></li><li aria-label="Taille S" data-instock="true"></li>'
         assert {o.size: o.available for o in parse_html_size_buttons(html)} == {"XS": False, "S": True}
+
+    def test_sizes_without_any_stock_marker_are_not_a_reading(self):
+        """The Hollister case: sizes rendered client-side. Guessing here means
+        announcing a restock on a sold-out product."""
+        html = '<button data-size="XS">XS</button><button data-size="S">S</button>'
+        result = parse_availability(html)
+        assert result.strategy == "html-no-stock-state"
+        assert result.found is False
+        assert result.sizes == {}
+        # Still visible to `diagnose`, just not actionable.
+        assert result.guessed_sizes == {"XS": True, "S": True}
+
+    def test_one_sold_out_marker_makes_the_whole_selector_readable(self):
+        html = (
+            '<button data-size="XS" class="sold-out">XS</button>'
+            '<button data-size="S">S</button>'
+        )
+        result = parse_availability(html)
+        assert result.strategy == "html-heuristic"
+        assert result.sizes == {"XS": False, "S": True}
 
     def test_fallback_can_be_disabled(self):
         html = '<button data-size="S">S</button>'
