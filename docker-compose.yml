@@ -1,0 +1,15 @@
+services:
+  stockwatch:
+    build: .
+    image: stockwatch:latest
+    container_name: stockwatch
+    env_file: .env
+    environment:
+      STOCKWATCH_STATE_FILE: /data/stockwatch-state.json
+    volumes:
+      - stockwatch-data:/data
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  stockwatch-data:

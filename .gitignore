@@ -1,0 +1,17 @@
+.env
+*.env
+!.env.example
+stockwatch-state.json
+*.state.json
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+.DS_Store
+dump*.html

@@ -1,0 +1,262 @@
+# 👕 Stockwatch — alerte Telegram dès qu'une taille revient en stock
+
+Bot Telegram qui surveille une fiche produit **en continu (1 vérification par
+seconde)** et prévient **à la seconde** où une taille — XS et S par défaut —
+redevient disponible.
+
+Conçu pour la fiche Hollister
+[Icon Henley](https://www.hollisterco.com/shop/eu-fr/p/icon-henley-63586319-2),
+mais l'URL et les tailles se changent depuis Telegram (`/produit`, `/tailles`) :
+le lecteur de stock ne dépend d'aucun sélecteur codé en dur.
+
+```
+🚨🚨 DISPO — TAILLE XS 🚨🚨
+
+👕 Hollister — Icon Henley
+✅ En stock : XS
+➕ Autres tailles dispo : M, L
+🕒 Détecté à 14:07:41 (le 14/09/2026)
+⚡ Vérification toutes les 1 s
+
+Commander maintenant
+[ 🛒 Ouvrir le produit ]
+```
+
+---
+
+## 1. Démarrage rapide
+
+```bash
+git clone https://github.com/Timlonooo12/hollister.git stockwatch
+cd stockwatch
+
+python3 -m venv .venv && source .venv/bin/activate     # Windows : .venv\Scripts\activate
+pip install -r requirements.txt
+
+cp .env.example .env
+```
+
+1. Sur Telegram, ouvre [@BotFather](https://t.me/BotFather) → `/newbot`, choisis
+   un nom, récupère le **token**.
+2. Colle-le dans `.env` : `STOCKWATCH_BOT_TOKEN=123456789:AA...`
+3. Lance :
+
+```bash
+python -m stockwatch
+```
+
+4. Ouvre une conversation avec ton bot et envoie **`/start`** : tu es abonné,
+   les alertes arrivent dans ce chat.
+
+> Tant que personne n'a fait `/start` et que `STOCKWATCH_CHAT_IDS` est vide, le
+> bot surveille mais n'a personne à prévenir — il le signale dans les logs.
+
+Python **3.11 ou plus récent** est requis.
+
+---
+
+## 2. Vérifier la lecture du stock (à faire une fois)
+
+Le stock est lu depuis la page du produit. Avant de compter dessus, demande au
+bot ce qu'il voit :
+
+```bash
+python -m stockwatch diagnose
+```
+
+```
+Source      : https://www.hollisterco.com/shop/eu-fr/p/icon-henley-63586319-2
+HTTP        : 200  en 412 ms  (1486203 caractères)
+Produit id  : 63586319
+Blocs JSON  : 7
+Stratégie   : json-focused
+
+Tailles détectées :
+  ❌ épuisée   XS
+  ❌ épuisée   S
+  ✅ DISPO     M
+  ✅ DISPO     L
+```
+
+- **Les tailles apparaissent** → tout est bon, lance `python -m stockwatch`.
+- **« Aucune taille détectée »** → la sortie dit quoi faire. Deux cas :
+  - *page de blocage* (Akamai/captcha) : voir §5 ;
+  - *structure changée* : envoie-moi la sortie de
+    `python -m stockwatch diagnose --save page.html`, l'analyse se corrige dans
+    `stockwatch/parsing.py`.
+
+L'option `--url` analyse une autre page, `--file` relit un fichier déjà
+téléchargé (pratique pour tester sans requêter le site).
+
+---
+
+## 3. Commandes Telegram
+
+| Commande | Effet |
+|---|---|
+| `/start` | S'abonner aux alertes dans ce chat |
+| `/stop` | Se désabonner |
+| `/status` | Produit, tailles, stock actuel, latence, statistiques, erreurs |
+| `/check` | Vérification immédiate, réponse en direct |
+| `/tailles XS,S` | Changer les tailles surveillées (`xs`, `Small`, `X-Small`… acceptés) |
+| `/produit <url>` | Changer le produit surveillé |
+| `/intervalle 1` | Délai entre deux vérifications, en secondes |
+| `/pause` / `/reprendre` | Suspendre ou relancer la surveillance |
+| `/id` | Afficher l'identifiant du chat (pour `STOCKWATCH_CHAT_IDS`) |
+| `/aide` | Rappel des commandes |
+
+Renseigne `STOCKWATCH_OWNER_ID` pour que **toi seul** puisses changer le
+produit, les tailles et l'intervalle : les autres abonnés ne peuvent que
+recevoir les alertes et consulter l'état.
+
+Les réglages faits depuis Telegram sont persistés : ils survivent à un
+redémarrage.
+
+---
+
+## 4. Comment l'alerte « à la seconde » fonctionne
+
+- une requête HTTP par seconde, sur une **connexion maintenue ouverte**
+  (pas de poignée de main TLS à chaque tour) : un contrôle coûte ~100–400 ms ;
+- l'alerte Telegram part **avant** l'écriture d'état, dans une tâche séparée :
+  la boucle ne perd pas un tour à attendre Telegram ;
+- une alerte par **transition** épuisé → disponible. Tant que la taille reste
+  dispo, plus rien (sauf `STOCKWATCH_REPEAT_ALERT_MINUTES`) ; si elle repart et
+  revient, tu es prévenu à nouveau ;
+- l'état est enregistré dans `stockwatch-state.json`, donc un redémarrage ne
+  rejoue pas une alerte déjà envoyée.
+
+**Le délai réel** entre la remise en stock et ton téléphone = intervalle de
+vérification (≤ 1 s) + temps de réponse du site + latence Telegram, soit en
+pratique **1 à 3 secondes** — auxquelles s'ajoute le cache du CDN du marchand,
+sur lequel aucun bot n'a de prise. Descendre sous 1 s n'améliore donc rien et
+augmente le risque de blocage ; le plancher est fixé à 0,2 s.
+
+Si la page devient illisible (blocage, panne, refonte), le bot **ne conclut
+jamais « épuisé »** : il compte les échecs, ralentit progressivement
+(backoff exponentiel jusqu'à `STOCKWATCH_MAX_BACKOFF`) et t'envoie un message
+« surveillance dégradée », puis « surveillance rétablie » quand ça repart.
+
+---
+
+## 5. Si le site bloque les requêtes
+
+Les grandes enseignes (Hollister = plateforme Abercrombie & Fitch) sont
+derrière un pare-feu applicatif. Symptôme : `HTTP 403`, « Access Denied » ou
+« Reference # » dans `diagnose`. Dans l'ordre :
+
+1. **Ralentis** : `STOCKWATCH_POLL_INTERVAL=2` (ou 5). Une alerte 4 s plus tard
+   vaut mieux qu'un bot banni.
+2. **Copie un cookie de navigateur** : ouvre la fiche produit dans Chrome →
+   F12 → onglet *Network* → clic sur la requête du document → *Request
+   Headers* → copie la valeur de `Cookie` dans `STOCKWATCH_COOKIE`.
+3. **Change d'IP** : `STOCKWATCH_PROXY_URL=http://user:pass@host:port`
+   (un proxy résidentiel passe là où un IP de datacenter est refusée).
+4. Ajuste `STOCKWATCH_USER_AGENT` pour coller exactement à ton navigateur.
+
+---
+
+## 6. Configuration
+
+Tout se règle par variables d'environnement (ou `.env`). `.env.example` liste
+les valeurs commentées ; les principales :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `STOCKWATCH_BOT_TOKEN` | — | **Obligatoire.** Token @BotFather |
+| `STOCKWATCH_CHAT_IDS` | vide | Chats prévenus même sans `/start` |
+| `STOCKWATCH_OWNER_ID` | vide | Seul autorisé à modifier la surveillance |
+| `STOCKWATCH_PRODUCT_URL` | Icon Henley | Page surveillée |
+| `STOCKWATCH_SIZES` | `XS,S` | Tailles surveillées |
+| `STOCKWATCH_POLL_INTERVAL` | `1.0` | Secondes entre deux vérifications |
+| `STOCKWATCH_ALERT_ON_FIRST_SEEN` | `true` | Alerter si déjà dispo au démarrage |
+| `STOCKWATCH_REPEAT_ALERT_MINUTES` | `0` | Rappel tant que c'est dispo (0 = aucun) |
+| `STOCKWATCH_COOKIE` / `STOCKWATCH_PROXY_URL` | vide | Contournement d'un blocage |
+| `STOCKWATCH_STATE_FILE` | `stockwatch-state.json` | Mémoire du stock et des abonnés |
+
+Le token, le cookie et le proxy sont chargés dans des `SecretStr` : ils
+n'apparaissent ni dans les logs ni dans un `repr()`.
+
+---
+
+## 7. Déploiement 24/7
+
+**systemd** (VPS, Raspberry Pi) — le fichier est fourni :
+
+```bash
+sudo useradd --system --create-home --home-dir /opt/stockwatch stockwatch
+sudo cp -r . /opt/stockwatch && cd /opt/stockwatch
+sudo -u stockwatch python3 -m venv .venv
+sudo -u stockwatch .venv/bin/pip install -r requirements.txt
+sudo cp deploy/stockwatch.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now stockwatch
+journalctl -u stockwatch -f
+```
+
+**Docker** :
+
+```bash
+cp .env.example .env   # renseigne le token
+docker compose up -d --build
+docker compose logs -f
+```
+
+L'état est monté dans un volume : le conteneur peut redémarrer sans réémettre
+d'alerte déjà envoyée.
+
+---
+
+## 8. Architecture
+
+```
+stockwatch/
+├── __main__.py   CLI : `run` (défaut) et `diagnose`
+├── app.py        câblage : bot Telegram + boucle de surveillance
+├── bot.py        commandes Telegram
+├── monitor.py    boucle, détection des transitions, backoff, /status
+├── parsing.py    lecture du stock (JSON embarqué, ld+json, repli HTML)
+├── client.py     client HTTP (connexion persistante, empreinte navigateur)
+├── notifier.py   envoi Telegram (retries, désabonnement des chats bloqués)
+├── config.py     configuration
+└── state.py      persistance (abonnés, stock connu, réglages)
+```
+
+`parsing.py` ne cible **aucun** sélecteur CSS ni aucun chemin d'API : il
+collecte tous les documents JSON de la page (état embarqué type
+`__INITIAL_STATE__` / `__NEXT_DATA__`, données structurées `ld+json`, réponse
+d'API brute) et retient les objets qui portent **à la fois** une taille
+(`XS`, `X-Small`, `Taille S`…) et un signal de stock (`inStock`, `soldOut`,
+`availability`, `quantity`…). Les signaux d'un même objet doivent concorder
+(`inStock: true` + `quantity: 0` ⇒ épuisé). Quand la page identifie le produit
+surveillé, les autres produits (recommandations, « vous aimerez aussi ») sont
+ignorés. Si aucun JSON n'est exploitable, les boutons de taille du HTML sont lus
+en dernier recours — l'alerte le précise alors.
+
+C'est ce qui permet au bot de survivre à une refonte du site sans changer de
+code, et `diagnose` sert à le vérifier en une commande.
+
+Tests :
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q        # 55 tests
+python -m ruff check .
+```
+
+---
+
+## 9. Honnêteté technique
+
+- **Le lecteur de stock n'a pas pu être validé contre la vraie page** :
+  l'environnement de développement n'avait pas accès à `hollisterco.com`
+  (sortie réseau filtrée). Les 55 tests couvrent chaque format de réponse géré,
+  mais le format réellement servi par Hollister doit être confirmé de ton côté
+  avec `python -m stockwatch diagnose`, qui existe exactement pour ça — et qui
+  te dira précisément quoi ajuster si le format diffère.
+- **Le stock affiché n'est pas une réservation.** Le bot te prévient, il
+  n'achète rien : sur une pièce très demandée, la taille peut repartir entre
+  l'alerte et ton passage en caisse.
+- **Un seul produit surveillé à la fois** (`/produit` bascule de l'un à
+  l'autre). Le suivi simultané de plusieurs fiches n'est pas implémenté.
+- Respecte les conditions d'utilisation du site : garde une cadence raisonnable
+  et n'utilise ce bot que pour ton usage personnel.
