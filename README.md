@@ -24,29 +24,41 @@ Commander maintenant
 
 ---
 
-## 1. Démarrage rapide
+## 1. Démarrage rapide — une seule commande
+
+**macOS / Linux** — copie-colle ce bloc dans ton terminal :
 
 ```bash
-git clone https://github.com/Timlonooo12/hollister.git stockwatch
-cd stockwatch
-
-python3 -m venv .venv && source .venv/bin/activate     # Windows : .venv\Scripts\activate
-pip install -r requirements.txt
-
-cp .env.example .env
+git clone https://github.com/Timlonooo12/Hollister.git stockwatch && cd stockwatch && bash setup.sh
 ```
 
-1. Sur Telegram, ouvre [@BotFather](https://t.me/BotFather) → `/newbot`, choisis
-   un nom, récupère le **token**.
-2. Colle-le dans `.env` : `STOCKWATCH_BOT_TOKEN=123456789:AA...`
-3. Lance :
+**Windows** — dans PowerShell :
+
+```powershell
+git clone https://github.com/Timlonooo12/Hollister.git stockwatch; cd stockwatch; powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+Le script installe les dépendances, **te demande ton token** (colle-le, Entrée),
+vérifie que le stock est lisible et démarre le bot. Il ne reste qu'à envoyer
+**`/start`** à ton bot sur Telegram pour recevoir les alertes.
+
+Le token vient de [@BotFather](https://t.me/BotFather) : `/newbot`, tu choisis un
+nom, il te répond `123456789:AAE-xxxxxxxxxxxxxxxxxxxx`.
+
+<details>
+<summary>Installation manuelle (si tu préfères)</summary>
 
 ```bash
+python3 -m venv .venv && source .venv/bin/activate     # Windows : .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                                    # puis renseigne STOCKWATCH_BOT_TOKEN
 python -m stockwatch
 ```
 
-4. Ouvre une conversation avec ton bot et envoie **`/start`** : tu es abonné,
-   les alertes arrivent dans ce chat.
+</details>
+
+Relancer plus tard : `bash setup.sh` (il garde le token déjà enregistré) ou
+directement `.venv/bin/python -m stockwatch`.
 
 > Tant que personne n'a fait `/start` et que `STOCKWATCH_CHAT_IDS` est vide, le
 > bot surveille mais n'a personne à prévenir — il le signale dans les logs.
@@ -239,7 +251,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 55 tests
+python -m pytest -q        # 61 tests
 python -m ruff check .
 ```
 

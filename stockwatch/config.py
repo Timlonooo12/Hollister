@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .parsing import normalize_size
@@ -105,6 +105,32 @@ class StockWatchSettings(BaseSettings):
     state_file: Path = Field(default=Path("stockwatch-state.json"), alias="STOCKWATCH_STATE_FILE")
     log_level: str = Field(default="INFO", alias="STOCKWATCH_LOG_LEVEL")
 
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object, info: ValidationInfo) -> object:
+        """Treat `STOCKWATCH_FOO=` (empty) as "not set".
+
+        `.env.example` ships several keys with no value on purpose (owner id,
+        cookie, proxy): without this an empty string would be parsed as `0`,
+        as an empty proxy URL, or would wipe a default.
+        """
+        if isinstance(value, str) and not value.strip():
+            field = cls.model_fields.get(info.field_name or "")
+            if field is not None and not field.is_required():
+                return field.get_default(call_default_factory=True)
+        return value
+
+    @field_validator("bot_token")
+    @classmethod
+    def _check_token(cls, value: SecretStr) -> SecretStr:
+        raw = value.get_secret_value().strip()
+        head, _, tail = raw.partition(":")
+        if not head or not tail:
+            raise ValueError(
+                "STOCKWATCH_BOT_TOKEN is not a Telegram token — expected `123456789:AA...` from @BotFather"
+            )
+        return SecretStr(raw)
+
     @field_validator("poll_interval")
     @classmethod
     def _floor_interval(cls, value: float) -> float:
@@ -191,4 +217,4 @@ def load_settings(*, allow_missing_token: bool = False) -> StockWatchSettings:
     except ValidationError:
         if not allow_missing_token:
             raise
-        return StockWatchSettings(STOCKWATCH_BOT_TOKEN="0:diagnose")
+        return StockWatchSettings(STOCKWATCH_BOT_TOKEN="0:diagnose-placeholder")

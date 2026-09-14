@@ -9,6 +9,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError, TelegramUnauthorizedError
 from aiogram.types import BotCommand
 
 from .bot import router
@@ -34,6 +35,10 @@ COMMANDS = [
 ]
 
 
+class StartupError(RuntimeError):
+    """A problem the user can fix — reported as one line, not a traceback."""
+
+
 def configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -56,6 +61,19 @@ async def run(settings: StockWatchSettings) -> None:
         token=settings.bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    try:
+        me = await bot.get_me()
+    except TelegramUnauthorizedError as exc:
+        await bot.session.close()
+        raise StartupError(
+            "Telegram refuse ce token. Vérifie STOCKWATCH_BOT_TOKEN dans .env "
+            "(@BotFather → /mybots → ton bot → API Token)."
+        ) from exc
+    except TelegramNetworkError as exc:
+        await bot.session.close()
+        raise StartupError(f"Impossible de joindre api.telegram.org : {exc}") from exc
+    logger.info("Connecté à Telegram en tant que @%s", me.username)
+
     client = ProductClient(settings)
     await client.start()
     notifier = TelegramNotifier(bot, state, settings.chat_ids)

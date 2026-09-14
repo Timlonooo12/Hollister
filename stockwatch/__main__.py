@@ -14,7 +14,7 @@ import sys
 from pydantic import ValidationError
 
 from . import __version__
-from .app import configure_logging, run
+from .app import StartupError, configure_logging, run
 from .config import load_settings
 from .diagnose import run_diagnose
 
@@ -57,6 +57,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         asyncio.run(run(settings))
+    except StartupError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 3
     except KeyboardInterrupt:
         return 0
     return 0

@@ -127,3 +127,48 @@ class TestLabel:
     def test_explicit_label_wins(self, settings):
         settings.product_label = "Mon tee"
         assert WatchConfig.from_settings(settings).product_label == "Mon tee"
+
+
+class TestBlankEnvValues:
+    """`.env.example` ships keys with no value: they must read as "unset"."""
+
+    def test_blank_optionals_do_not_crash(self):
+        s = StockWatchSettings(
+            _env_file=None,
+            STOCKWATCH_BOT_TOKEN="123456789:AA",
+            STOCKWATCH_OWNER_ID="",
+            STOCKWATCH_COOKIE="",
+            STOCKWATCH_PROXY_URL="",
+            STOCKWATCH_API_URL="",
+            STOCKWATCH_CHAT_IDS="",
+        )
+        assert s.owner_id is None
+        assert s.cookie is None
+        assert s.proxy_url is None
+        assert s.chat_ids == []
+
+    def test_blank_values_fall_back_to_defaults(self):
+        s = StockWatchSettings(
+            _env_file=None,
+            STOCKWATCH_BOT_TOKEN="123456789:AA",
+            STOCKWATCH_USER_AGENT="",
+            STOCKWATCH_POLL_INTERVAL="",
+            STOCKWATCH_HTTP2="",
+            STOCKWATCH_SIZES="",
+        )
+        assert "Mozilla/5.0" in s.user_agent
+        assert s.poll_interval == 1.0
+        assert s.http2 is False
+        assert s.sizes == ["XS", "S"]
+
+    def test_a_blank_or_malformed_token_is_refused(self):
+        with pytest.raises(ValidationError):
+            StockWatchSettings(_env_file=None, STOCKWATCH_BOT_TOKEN="")
+        with pytest.raises(ValidationError):
+            StockWatchSettings(_env_file=None, STOCKWATCH_BOT_TOKEN="123456789")
+
+    def test_diagnose_can_run_without_a_token(self, monkeypatch):
+        from stockwatch.config import load_settings
+
+        monkeypatch.delenv("STOCKWATCH_BOT_TOKEN", raising=False)
+        assert load_settings(allow_missing_token=True).poll_interval > 0
