@@ -190,6 +190,40 @@ derrière un pare-feu applicatif. Symptôme : `HTTP 403`, « Access Denied » ou
 
 ---
 
+## 5 bis. « Les tailles sont listées sans état de stock »
+
+Message rencontré sur **hollisterco.com** : la page HTML contient bien les
+tailles, mais leur disponibilité est chargée ensuite en JavaScript. Le HTML seul
+ne peut donc pas y répondre — et le bot **refuse de deviner** : supposer
+« bouton affiché = disponible » ferait sonner l'alerte sur un produit épuisé.
+Il signale « surveillance dégradée » au lieu d'inventer une disponibilité.
+
+La solution est de lui donner l'appel réseau qui porte réellement le stock :
+
+1. Ouvre la fiche produit dans Chrome ou Safari.
+2. **F12** (ou clic droit → Inspecter) → onglet **Réseau** → filtre **Fetch/XHR**.
+3. Recharge la page, puis clique une taille.
+4. Cherche une réponse **JSON** qui contient `XS`, `inStock`, `inventory` ou
+   `availability` (l'onglet *Aperçu/Preview* les montre).
+5. Clic droit sur cette requête → **Copier** → **Copier l'adresse du lien**.
+6. Colle-la dans `.env` :
+
+```bash
+STOCKWATCH_API_URL=https://www.hollisterco.com/api/…
+```
+
+7. Vérifie : `python -m stockwatch diagnose` doit maintenant lister les tailles
+   avec ✅/❌, puis relance le bot.
+
+Si l'endpoint exige des en-têtes particuliers, ajoute-les dans
+`STOCKWATCH_EXTRA_HEADERS` (JSON) et le cookie dans `STOCKWATCH_COOKIE`.
+
+En cas de doute, `python -m stockwatch diagnose` affiche une section
+**« Pistes »** qui montre où les tailles apparaissent dans le JSON de la page :
+ces quelques lignes suffisent à écrire le lecteur exact.
+
+---
+
 ## 6. Configuration
 
 Tout se règle par variables d'environnement (ou `.env`). `.env.example` liste
@@ -263,8 +297,12 @@ d'API brute) et retient les objets qui portent **à la fois** une taille
 `availability`, `quantity`…). Les signaux d'un même objet doivent concorder
 (`inStock: true` + `quantity: 0` ⇒ épuisé). Quand la page identifie le produit
 surveillé, les autres produits (recommandations, « vous aimerez aussi ») sont
-ignorés. Si aucun JSON n'est exploitable, les boutons de taille du HTML sont lus
-en dernier recours — l'alerte le précise alors.
+ignorés. Quand les tailles et les stocks vivent dans deux structures distinctes, ils sont
+recoupés par identifiant de variante (sku). Si aucun JSON n'est exploitable, les
+boutons de taille du HTML sont lus en dernier recours — et **uniquement** si la
+page marque réellement l'indisponibilité quelque part (attribut `disabled`,
+classe « sold out »…) ; sinon la lecture est déclarée impossible plutôt que
+devinée.
 
 C'est ce qui permet au bot de survivre à une refonte du site sans changer de
 code, et `diagnose` sert à le vérifier en une commande.
@@ -273,7 +311,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 61 tests
+python -m pytest -q        # 68 tests
 python -m ruff check .
 ```
 
@@ -281,12 +319,18 @@ python -m ruff check .
 
 ## 9. Honnêteté technique
 
-- **Le lecteur de stock n'a pas pu être validé contre la vraie page** :
-  l'environnement de développement n'avait pas accès à `hollisterco.com`
-  (sortie réseau filtrée). Les 55 tests couvrent chaque format de réponse géré,
-  mais le format réellement servi par Hollister doit être confirmé de ton côté
-  avec `python -m stockwatch diagnose`, qui existe exactement pour ça — et qui
-  te dira précisément quoi ajuster si le format diffère.
+- **Le HTML de hollisterco.com ne porte pas le stock** (constaté en conditions
+  réelles) : les tailles y sont listées, leur disponibilité est chargée ensuite
+  en JavaScript. Tant que `STOCKWATCH_API_URL` ne pointe pas vers l'appel qui
+  porte le stock (voir §5 bis), le bot dira « surveillance dégradée » — c'est
+  volontaire : il ne devine pas. Une première version devinait, et a annoncé
+  « XS, S disponibles » sur un produit intégralement épuisé ; c'est corrigé et
+  couvert par un test de non-régression.
+- **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
+  développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
+  Les 68 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  confirmer le format réellement servi et fournit les « Pistes » nécessaires
+  pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il
   n'achète rien : sur une pièce très demandée, la taille peut repartir entre
   l'alerte et ton passage en caisse.
