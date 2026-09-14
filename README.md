@@ -45,6 +45,28 @@ vérifie que le stock est lisible et démarre le bot. Il ne reste qu'à envoyer
 Le token vient de [@BotFather](https://t.me/BotFather) : `/newbot`, tu choisis un
 nom, il te répond `123456789:AAE-xxxxxxxxxxxxxxxxxxxx`.
 
+### Prérequis
+
+- **Python 3.11 ou plus récent.** Sur macOS, le Python fourni par Apple est en
+  3.9 : installe le `.pkg` depuis
+  [python.org/downloads/macos](https://www.python.org/downloads/macos/)
+  (double-clic, Suivant, terminé). Sur Debian/Ubuntu :
+  `sudo apt install -y python3 python3-venv python3-pip`.
+- **`git`** uniquement pour la commande ci-dessus. Sur un Mac neuf il n'est pas
+  installé — soit tu acceptes le dialogue « outils de ligne de commande », soit
+  tu passes par le ZIP :
+
+### Sans git (ou dépôt privé) : par le ZIP
+
+Sur la page du dépôt, bouton vert **Code** → **Download ZIP**, puis :
+
+```bash
+cd ~/Downloads && unzip -oq Hollister-main.zip && cd Hollister-main && bash setup.sh
+```
+
+C'est le chemin le plus court si le dépôt est privé : pas de token GitHub à
+configurer.
+
 <details>
 <summary>Installation manuelle (si tu préfères)</summary>
 

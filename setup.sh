@@ -27,14 +27,43 @@ die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
 # --- 1. Python -------------------------------------------------------------
 PY=""
-for candidate in python3.12 python3.11 python3 python; do
-  if command -v "$candidate" >/dev/null 2>&1 &&
-     "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+FOUND=""
+for candidate in python3.13 python3.12 python3.11 python3 python; do
+  command -v "$candidate" >/dev/null 2>&1 || continue
+  VERSION="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+  [ -n "$VERSION" ] || continue          # macOS sans outils Xcode : le binaire existe mais n'exécute rien
+  [ -n "$FOUND" ] || FOUND="$VERSION"
+  if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
     PY="$candidate"; break
   fi
 done
-[ -n "$PY" ] || die "Python 3.11+ est requis (installe-le puis relance : sudo apt install python3 python3-venv, ou brew install python@3.12)."
-ok "Python trouvé : $($PY --version)"
+
+if [ -z "$PY" ]; then
+  echo
+  if [ -n "$FOUND" ]; then
+    printf '\033[1;31m✗ Python %s est trop ancien — il en faut 3.11 ou plus récent.\033[0m\n' "$FOUND" >&2
+  else
+    printf '\033[1;31m✗ Python 3.11+ est introuvable.\033[0m\n' >&2
+  fi
+  case "$(uname -s)" in
+    Darwin)
+      echo "  macOS : le Python livré par Apple est en 3.9, trop ancien." >&2
+      echo "  1. Ouvre https://www.python.org/downloads/macos/" >&2
+      echo "  2. Télécharge le .pkg « macOS 64-bit universal2 installer », double-clic, Suivant…" >&2
+      echo "  3. Relance :  bash setup.sh" >&2
+      ;;
+    Linux)
+      echo "  Debian / Ubuntu :  sudo apt update && sudo apt install -y python3 python3-venv python3-pip" >&2
+      echo "  Fedora          :  sudo dnf install -y python3 python3-pip" >&2
+      echo "  Puis relance    :  bash setup.sh" >&2
+      ;;
+    *)
+      echo "  Installe Python 3.11+ depuis https://www.python.org/downloads/ puis relance : bash setup.sh" >&2
+      ;;
+  esac
+  exit 1
+fi
+ok "Python trouvé : $($PY --version 2>&1)"
 
 # --- 2. Environnement virtuel ---------------------------------------------
 say "Installation des dépendances…"
