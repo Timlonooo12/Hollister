@@ -132,6 +132,36 @@ class TestFailures:
         assert fake_notifier.messages == []
         assert "JavaScript" in (tick.error or "")
 
+    async def test_several_colourways_never_alert_for_the_wrong_one(self, settings, config, state, fake_notifier):
+        payload = {"products": [
+            {"productId": "111", "skus": [{"sizePrimary": "XS_p", "inventory": 0,
+                                           "inventoryStatus": "Unavailable"}]},
+            {"productId": "222", "skus": [{"sizePrimary": "XS_p", "inventory": 9,
+                                           "inventoryStatus": "InStock"}]},
+        ]}
+        body = "<script>window.__INITIAL_STATE__ = " + json.dumps(payload) + ";</script>"
+        monitor = build(settings, config, state, fake_notifier, [body])
+        tick = await monitor.check_once()
+        await drain(monitor)
+        assert tick.ok is False
+        assert fake_notifier.messages == []
+        assert "/variante" in (tick.error or "")
+
+    async def test_naming_the_colourway_makes_it_readable(self, settings, config, state, fake_notifier):
+        payload = {"products": [
+            {"productId": "111", "skus": [{"sizePrimary": "XS_p", "inventory": 0,
+                                           "inventoryStatus": "Unavailable"}]},
+            {"productId": "222", "skus": [{"sizePrimary": "XS_p", "inventory": 9,
+                                           "inventoryStatus": "InStock"}]},
+        ]}
+        body = "<script>window.__INITIAL_STATE__ = " + json.dumps(payload) + ";</script>"
+        config.product_id = "222"
+        monitor = build(settings, config, state, fake_notifier, [body])
+        tick = await monitor.check_once()
+        await drain(monitor)
+        assert tick.ok is True
+        assert tick.newly_available == ["XS"]
+
     async def test_repeated_unreadable_pages_warn_the_owner(self, settings, config, state, fake_notifier):
         monitor = build(settings, config, state, fake_notifier, ['<button data-size="XS">XS</button>'])
         for _ in range(3):

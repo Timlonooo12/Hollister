@@ -172,3 +172,23 @@ class TestBlankEnvValues:
 
         monkeypatch.delenv("STOCKWATCH_BOT_TOKEN", raising=False)
         assert load_settings(allow_missing_token=True).poll_interval > 0
+
+
+class TestProductId:
+    def test_falls_back_to_the_id_in_the_url(self, config):
+        assert config.effective_product_id() == "63586319"
+
+    def test_explicit_id_wins(self, config):
+        config.product_id = "63503980"
+        assert config.effective_product_id() == "63503980"
+
+    async def test_override_survives_a_restart(self, settings):
+        from stockwatch.state import StateStore, apply_overrides
+
+        store = StateStore(settings.state_file)
+        await store.set_override("product_id", "63503980")
+        reloaded = StateStore(settings.state_file)
+        reloaded.load()
+        config = WatchConfig.from_settings(settings)
+        apply_overrides(config, reloaded.overrides)
+        assert config.effective_product_id() == "63503980"

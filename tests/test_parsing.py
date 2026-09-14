@@ -151,6 +151,61 @@ class TestSplitSchemas:
         assert result.sizes == {"XS": False}
 
 
+class TestRealCatalogueSchemas:
+    """Shapes seen on the live Hollister page (see README §5 bis)."""
+
+    HOLLISTER = {
+        "skus": [
+            {"__typename": "Sku", "inventory": 0, "inventoryStatus": "Unavailable",
+             "productId": "63503980", "shortSku": "675056184", "sizePrimary": "XS_p"},
+            {"__typename": "Sku", "inventory": 4, "inventoryStatus": "InStock",
+             "productId": "63503980", "shortSku": "675056185", "sizePrimary": "S_p"},
+        ]
+    }
+
+    def test_size_primary_with_a_dimension_suffix(self):
+        assert normalize_size("L_p") == "L"
+        assert normalize_size("XS_p") == "XS"
+        assert normalize_size("XXL_p") == "XXL"
+        assert normalize_size("M/32") == "M"
+        assert normalize_size("_p") is None
+        assert normalize_size("navy_p") is None
+
+    def test_hollister_sku_list(self):
+        result = parse_availability(json.dumps(self.HOLLISTER), product_id="63503980")
+        assert result.sizes == {"XS": False, "S": True}
+
+    def test_colourways_are_not_merged(self):
+        payload = {"products": [
+            {"productId": "111", "skus": [{"sizePrimary": "XS_p", "inventory": 0,
+                                           "inventoryStatus": "Unavailable"}]},
+            {"productId": "222", "skus": [{"sizePrimary": "XS_p", "inventory": 9,
+                                           "inventoryStatus": "InStock"}]},
+        ]}
+        result = parse_availability(json.dumps(payload))
+        # Nothing says which colour the page shows: refuse rather than merge.
+        assert result.strategy == "json-ambiguous-products"
+        assert result.sizes == {}
+
+    def test_naming_the_colourway_resolves_it(self):
+        payload = {"products": [
+            {"productId": "111", "skus": [{"sizePrimary": "XS_p", "inventory": 0,
+                                           "inventoryStatus": "Unavailable"}]},
+            {"productId": "222", "skus": [{"sizePrimary": "XS_p", "inventory": 9,
+                                           "inventoryStatus": "InStock"}]},
+        ]}
+        assert parse_availability(json.dumps(payload), product_id="111").sizes == {"XS": False}
+        assert parse_availability(json.dumps(payload), product_id="222").sizes == {"XS": True}
+
+    def test_one_product_needs_no_disambiguation(self):
+        payload = {"product": {"productId": "111", "skus": [
+            {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"},
+            {"sizePrimary": "S_p", "inventory": 2, "inventoryStatus": "InStock"},
+        ]}}
+        result = parse_availability(json.dumps(payload))
+        assert result.sizes == {"XS": False, "S": True}
+
+
 class TestHtmlFallback:
     def test_disabled_buttons_are_out_of_stock(self):
         html = """

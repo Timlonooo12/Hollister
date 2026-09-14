@@ -134,6 +134,7 @@ téléchargé (pratique pour tester sans requêter le site).
 | `/check` | Vérification immédiate, réponse en direct |
 | `/tailles XS,S` | Changer les tailles surveillées (`xs`, `Small`, `X-Small`… acceptés) |
 | `/produit <url>` | Changer le produit surveillé |
+| `/variante <id>` | Choisir le coloris quand la page en contient plusieurs |
 | `/intervalle 1` | Délai entre deux vérifications, en secondes |
 | `/pause` / `/reprendre` | Suspendre ou relancer la surveillance |
 | `/id` | Afficher l'identifiant du chat (pour `STOCKWATCH_CHAT_IDS`) |
@@ -190,7 +191,32 @@ derrière un pare-feu applicatif. Symptôme : `HTTP 403`, « Access Denied » ou
 
 ---
 
-## 5 bis. « Les tailles sont listées sans état de stock »
+## 5 bis. Lire le stock de la bonne fiche, et du bon coloris
+
+Deux messages possibles quand la lecture ne donne rien — ils disent tous les
+deux quoi faire plutôt que d'inventer une disponibilité.
+
+### « La page contient plusieurs produits »
+
+Une fiche produit embarque aussi ses **autres coloris** et ses recommandations,
+chacun avec ses propres tailles. Fusionner leurs stocks ferait sonner l'alerte
+pour le mauvais coloris : le bot refuse, et `diagnose` affiche le stock lu pour
+chaque identifiant :
+
+```
+   Stock lu pour chacun — repère celui qui correspond à ce que montre le site :
+     • produit 63503980
+         dispo    : aucune
+         épuisées : XS, S, M, L
+     • produit 63503981
+         dispo    : M, L
+         épuisées : XS, S
+```
+
+Compare avec la page, puis désigne le bon : `/variante 63503980` sur Telegram
+(ou `STOCKWATCH_PRODUCT_ID=63503980` dans `.env`).
+
+### « Les tailles sont listées sans état de stock »
 
 Message rencontré sur **hollisterco.com** : la page HTML contient bien les
 tailles, mais leur disponibilité est chargée ensuite en JavaScript. Le HTML seul
@@ -236,6 +262,7 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_OWNER_ID` | vide | Seul autorisé à modifier la surveillance |
 | `STOCKWATCH_PRODUCT_URL` | Icon Henley | Page surveillée |
 | `STOCKWATCH_SIZES` | `XS,S` | Tailles surveillées |
+| `STOCKWATCH_PRODUCT_ID` | vide | Identifiant du coloris, si la page en contient plusieurs |
 | `STOCKWATCH_POLL_INTERVAL` | `1.0` | Secondes entre deux vérifications |
 | `STOCKWATCH_ALERT_ON_FIRST_SEEN` | `true` | Alerter si déjà dispo au démarrage |
 | `STOCKWATCH_REPEAT_ALERT_MINUTES` | `0` | Rappel tant que c'est dispo (0 = aucun) |
@@ -244,6 +271,20 @@ les valeurs commentées ; les principales :
 
 Le token, le cookie et le proxy sont chargés dans des `SecretStr` : ils
 n'apparaissent ni dans les logs ni dans un `repr()`.
+
+---
+
+## 6 bis. Mettre à jour
+
+```bash
+cd ~/Downloads/Hollister-main && bash update.sh
+```
+
+Le script récupère la dernière version, remplace le code et réinstalle les
+dépendances. Ton `.env` et la mémoire du stock (`stockwatch-state.json`) ne sont
+pas dans l'archive : ils restent en place. Dépôt privé → crée un token
+(github.com/settings/tokens, portée « repo ») puis
+`GITHUB_TOKEN=ton_token bash update.sh`.
 
 ---
 
@@ -311,7 +352,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 68 tests
+python -m pytest -q        # 81 tests
 python -m ruff check .
 ```
 
@@ -328,7 +369,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 68 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 81 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

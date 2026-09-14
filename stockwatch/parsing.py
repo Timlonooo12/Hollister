@@ -56,7 +56,12 @@ def _fold(value: str) -> str:
 
 def normalize_size(raw: Any) -> str | None:
     """Return the canonical size (``"XS"``) for `raw`, or None if it is not a
-    size label. Accepts ``"xs"``, ``"X-Small"``, ``"Taille XS"``, ``" S "``."""
+    size label.
+
+    Accepts ``"xs"``, ``"X-Small"``, ``"Taille XS"``, ``" S "``, and the
+    dimension-suffixed forms real catalogues use — Hollister ships
+    ``"sizePrimary": "L_p"``, others ``"M/32"``.
+    """
     if not isinstance(raw, str):
         return None
     candidate = raw.strip()
@@ -67,7 +72,16 @@ def normalize_size(raw: Any) -> str | None:
         if folded.startswith(prefix) and len(folded) > len(prefix):
             folded = folded[len(prefix):]
             break
-    return _SIZE_ALIASES.get(folded)
+    size = _SIZE_ALIASES.get(folded)
+    if size:
+        return size
+    for separator in ("_", "/", "|"):
+        head, found, _ = candidate.partition(separator)
+        if found and head.strip():
+            size = _SIZE_ALIASES.get(_fold(head))
+            if size:
+                return size
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -81,6 +95,8 @@ def _key(name: Any) -> str:
 # Keys whose *value* may hold the size label.
 _SIZE_KEYS = {
     "size", "sizename", "sizelabel", "sizedescription", "sizecode", "sizevalue",
+    # Hollister / Abercrombie name their two size dimensions this way.
+    "sizeprimary", "sizesecondary", "primarysize", "secondarysize",
     "shortdescription", "displayname", "displayvalue", "label", "value", "name",
     "title", "text", "optionvalue", "variantvalue", "description", "dimensionvalue",
 }
@@ -312,6 +328,7 @@ class SizeObservation:
     detail: str = ""
     focused: bool = False
     confident: bool = True
+    owner: str | None = None   # product id the reading sits under, when the page says
 
 
 @dataclass
@@ -336,6 +353,9 @@ class ParseResult:
 _ID_KEYS = {"productid", "id", "sku", "productcode", "masterproductid", "parentid", "collectionid"}
 # Ids narrow enough to pair a size label with a stock level. "productid" is
 # deliberately absent: it names the whole product, not one variant.
+# Keys naming the product a node belongs to — used to keep one colourway's
+# stock from being merged with another's.
+_OWNER_KEYS = {"productid", "masterproductid", "collectionid"}
 _JOIN_ID_KEYS = {
     "skuid", "sku", "variantid", "variantcode", "itemid", "productitemid",
     "styleid", "id", "code", "key", "upc", "ean", "gtin",
@@ -375,7 +395,24 @@ def _ids_of(node: dict[str, Any]) -> list[str]:
     return values
 
 
-def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: _Collector) -> None:
+def _owner_of(node: dict[str, Any], inherited: str | None) -> str | None:
+    """Which product this node belongs to, when the page says so."""
+    for raw_key, value in node.items():
+        if _key(raw_key) in _OWNER_KEYS and isinstance(value, str | int) and not isinstance(value, bool):
+            text = str(value).strip()
+            if text:
+                return text
+    return inherited
+
+
+def _walk(
+    node: Any,
+    product_id: str | None,
+    focused: bool,
+    depth: int,
+    out: _Collector,
+    owner: str | None = None,
+) -> None:
     if depth > _MAX_DEPTH or out.full():
         return
     if isinstance(node, dict):
@@ -385,6 +422,7 @@ def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: _Co
                 if _key(raw_key) in _ID_KEYS and isinstance(value, str | int) and str(value) == product_id:
                     here = True
                     break
+        owner_here = _owner_of(node, owner)
         size = size_from_mapping(node)
         available = availability_from_mapping(node)
         if size and available is not None:
@@ -395,6 +433,7 @@ def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: _Co
                     source="json",
                     detail=_short_repr(node),
                     focused=here,
+                    owner=owner_here,
                 )
             )
         elif size:
@@ -404,10 +443,10 @@ def _walk(node: Any, product_id: str | None, focused: bool, depth: int, out: _Co
             for ident in _ids_of(node):
                 out.stock_by_id.setdefault(ident, (available, _short_repr(node)))
         for value in node.values():
-            _walk(value, product_id, here, depth + 1, out)
+            _walk(value, product_id, here, depth + 1, out, owner_here)
     elif isinstance(node, list):
         for value in node:
-            _walk(value, product_id, focused, depth + 1, out)
+            _walk(value, product_id, focused, depth + 1, out, owner)
 
 
 def _joined_observations(collector: _Collector) -> list[SizeObservation]:
@@ -550,11 +589,22 @@ def parse_availability(body: str, *, product_id: str | None = None, html_fallbac
 
     if observations:
         focused = [observation for observation in observations if observation.focused]
-        chosen = focused or observations
+        if focused:
+            return ParseResult(
+                sizes=merge_observations(focused),
+                observations=focused,
+                strategy=f"{strategy}-focused",
+            )
+        owners = {observation.owner for observation in observations if observation.owner}
+        if len(owners) > 1:
+            # A product page also carries its other colourways and its
+            # recommendations. Merging them would alert on another product's
+            # stock, so say "unreadable" instead of guessing which one is shown.
+            return ParseResult(sizes={}, observations=observations, strategy="json-ambiguous-products")
         return ParseResult(
-            sizes=merge_observations(chosen),
-            observations=chosen,
-            strategy=f"{strategy}-focused" if focused else strategy,
+            sizes=merge_observations(observations),
+            observations=observations,
+            strategy=strategy,
         )
 
     if html_fallback:

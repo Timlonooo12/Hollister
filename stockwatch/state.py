@@ -172,6 +172,9 @@ def apply_overrides(config: Any, overrides: dict[str, Any]) -> None:
     interval = overrides.get("poll_interval")
     if isinstance(interval, int | float) and interval > 0:
         config.poll_interval = max(0.2, float(interval))
+    variant = overrides.get("product_id")
+    if isinstance(variant, str):
+        config.product_id = variant.strip()
     paused = overrides.get("paused")
     if isinstance(paused, bool):
         config.paused = paused

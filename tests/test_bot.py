@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from aiogram.filters import CommandObject
 
-from stockwatch.bot import cmd_interval, cmd_product, cmd_sizes, cmd_start, cmd_stop
+from stockwatch.bot import cmd_interval, cmd_product, cmd_sizes, cmd_start, cmd_stop, cmd_variant
 from stockwatch.config import StockWatchSettings
 
 
@@ -106,4 +106,25 @@ class TestProductAndInterval:
         message = FakeMessage()
         await cmd_interval(message, command("vite"), config, state, settings)
         assert config.poll_interval == 1.0
+        assert "invalide" in message.sent[-1]
+
+
+class TestVariant:
+    async def test_sets_the_colourway_and_forgets_the_old_stock(self, settings, config, state):
+        state.record_size("XS", True)
+        message = FakeMessage()
+        await cmd_variant(message, command("63503980"), config, state, settings)
+        assert config.product_id == "63503980"
+        assert state.overrides["product_id"] == "63503980"
+        assert state.sizes == {}
+
+    async def test_shows_the_current_one_without_arguments(self, settings, config, state):
+        message = FakeMessage()
+        await cmd_variant(message, command(None), config, state, settings)
+        assert "URL" in message.sent[-1]
+
+    async def test_rejects_junk(self, settings, config, state):
+        message = FakeMessage()
+        await cmd_variant(message, command("../etc/passwd"), config, state, settings)
+        assert config.product_id == ""
         assert "invalide" in message.sent[-1]

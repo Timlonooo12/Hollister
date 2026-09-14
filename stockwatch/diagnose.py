@@ -14,7 +14,7 @@ from typing import Any
 
 from .client import ProductClient
 from .config import StockWatchSettings
-from .parsing import iter_json_blobs, parse_availability, product_id_from_url, size_from_mapping
+from .parsing import ParseResult, iter_json_blobs, parse_availability, product_id_from_url, size_from_mapping
 
 
 async def diagnose(
@@ -48,7 +48,7 @@ async def diagnose(
         Path(save).write_text(body, "utf-8")
         print(f"Réponse enregistrée dans {save}")
 
-    product_id = product_id_from_url(url or settings.product_url)
+    product_id = settings.product_id.strip() or product_id_from_url(url or settings.product_url)
     blobs = list(iter_json_blobs(body))
     print(f"Produit id  : {product_id or '—'}")
     print(f"Blocs JSON  : {len(blobs)}")
@@ -58,6 +58,22 @@ async def diagnose(
     print()
 
     if not parsed.found:
+        if parsed.strategy == "json-ambiguous-products":
+            print("❌ La page contient plusieurs produits (coloris, recommandations) et aucun ne porte")
+            print(f"   l'identifiant de l'URL ({product_id or '—'}). Je refuse de deviner lequel est affiché :")
+            print("   fusionner leurs stocks ferait sonner l'alerte pour le mauvais coloris.")
+            print()
+            print("   Stock lu pour chacun — repère celui qui correspond à ce que montre le site :")
+            for owner, sizes in _group_by_owner(parsed).items():
+                dispo = ", ".join(size for size, ok in sorted(sizes.items()) if ok) or "aucune"
+                epuise = ", ".join(size for size, ok in sorted(sizes.items()) if not ok) or "aucune"
+                print(f"     • produit {owner}")
+                print(f"         dispo    : {dispo}")
+                print(f"         épuisées : {epuise}")
+            print()
+            print("   Puis dis-le au bot :  /variante <identifiant>")
+            print("   (ou STOCKWATCH_PRODUCT_ID=<identifiant> dans .env)")
+            return 1
         if parsed.strategy == "html-no-stock-state":
             print("❌ Les tailles sont dans la page, mais SANS état de stock.")
             print(f"   Tailles listées : {', '.join(sorted(parsed.guessed_sizes)) or '—'}")
@@ -91,6 +107,15 @@ async def diagnose(
         print()
         print(f"⚠️  Tailles surveillées absentes de la page : {', '.join(missing)}")
     return 0
+
+
+def _group_by_owner(parsed: ParseResult) -> dict[str, dict[str, bool]]:
+    grouped: dict[str, dict[str, bool]] = {}
+    for observation in parsed.observations:
+        owner = observation.owner or "(sans identifiant)"
+        sizes = grouped.setdefault(owner, {})
+        sizes[observation.size] = sizes.get(observation.size, False) or observation.available
+    return grouped
 
 
 def _print_leads(blobs: list[Any]) -> None:

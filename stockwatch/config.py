@@ -15,7 +15,7 @@ from pathlib import Path
 from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .parsing import normalize_size
+from .parsing import normalize_size, product_id_from_url
 
 # The product the bot was originally built for (Hollister "Icon Henley").
 # Query parameters from the shared link are stripped: they only carry the
@@ -72,6 +72,10 @@ class StockWatchSettings(BaseSettings):
     product_url: str = Field(default=DEFAULT_PRODUCT_URL, alias="STOCKWATCH_PRODUCT_URL")
     product_label: str = Field(default="", alias="STOCKWATCH_PRODUCT_LABEL")
     sizes_raw: str = Field(default=DEFAULT_SIZES, alias="STOCKWATCH_SIZES")
+    # A product page also carries its other colourways. When the page's own id
+    # for the colour you want differs from the one in the URL, name it here
+    # (`diagnose` prints the candidates).
+    product_id: str = Field(default="", alias="STOCKWATCH_PRODUCT_ID")
     # Optional JSON endpoint. Left empty the watcher reads the product page and
     # digs the state out of the embedded JSON, which needs no guessing.
     api_url: str = Field(default="", alias="STOCKWATCH_API_URL")
@@ -195,6 +199,11 @@ class WatchConfig:
     sizes: list[str] = field(default_factory=lambda: ["XS", "S"])
     poll_interval: float = 1.0
     paused: bool = False
+    product_id: str = ""
+
+    def effective_product_id(self) -> str | None:
+        """The id identifying the watched colourway inside the page."""
+        return self.product_id or product_id_from_url(self.product_url)
 
     @classmethod
     def from_settings(cls, settings: StockWatchSettings) -> WatchConfig:
@@ -203,6 +212,7 @@ class WatchConfig:
             product_label=settings.product_label or label_from_url(settings.product_url),
             sizes=list(settings.sizes),
             poll_interval=settings.poll_interval,
+            product_id=settings.product_id.strip(),
         )
 
 

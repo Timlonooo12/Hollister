@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from .client import FetchResult, ProductClient
 from .config import StockWatchSettings, WatchConfig
 from .notifier import TelegramNotifier
-from .parsing import ParseResult, parse_availability, product_id_from_url
+from .parsing import ParseResult, parse_availability
 from .state import StateStore, utcnow
 
 logger = logging.getLogger(__name__)
@@ -81,11 +81,17 @@ class Monitor:
 
         parsed = parse_availability(
             result.body,
-            product_id=product_id_from_url(self.config.product_url),
+            product_id=self.config.effective_product_id(),
             html_fallback=self.settings.html_fallback,
         )
         if not parsed.found:
-            if parsed.strategy == "html-no-stock-state":
+            if parsed.strategy == "json-ambiguous-products":
+                message = (
+                    "la page contient plusieurs produits (coloris, recommandations) et aucun ne "
+                    "correspond à l'identifiant de l'URL : impossible de savoir lequel est affiché. "
+                    "Lance `python -m stockwatch diagnose` puis choisis-le avec /variante <id>"
+                )
+            elif parsed.strategy == "html-no-stock-state":
                 message = (
                     "les tailles sont listées dans la page mais sans état de stock : "
                     "ce site charge la disponibilité en JavaScript. Lance `python -m stockwatch diagnose` "

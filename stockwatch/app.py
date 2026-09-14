@@ -27,6 +27,7 @@ COMMANDS = [
     BotCommand(command="check", description="Vérifier tout de suite"),
     BotCommand(command="tailles", description="Tailles surveillées (ex : XS,S)"),
     BotCommand(command="produit", description="Changer le produit surveillé"),
+    BotCommand(command="variante", description="Choisir le coloris suivi"),
     BotCommand(command="intervalle", description="Délai entre deux vérifications"),
     BotCommand(command="pause", description="Suspendre la surveillance"),
     BotCommand(command="reprendre", description="Relancer la surveillance"),

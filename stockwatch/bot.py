@@ -29,6 +29,7 @@ HELP = (
     "/check — vérifier tout de suite\n"
     "/tailles XS,S — choisir les tailles surveillées\n"
     "/produit &lt;url&gt; — changer le produit surveillé\n"
+    "/variante &lt;id&gt; — choisir le coloris quand la page en contient plusieurs\n"
     "/intervalle 1 — délai entre deux vérifications (secondes)\n"
     "/pause et /reprendre — suspendre ou relancer la surveillance\n"
     "/id — afficher l'identifiant de ce chat\n"
@@ -152,6 +153,37 @@ async def cmd_product(message: Message, command: CommandObject, config: WatchCon
     await message.answer(
         f"✅ Nouveau produit surveillé : <b>{html.escape(config.product_label)}</b>\n{html.escape(url)}"
     )
+
+
+@router.message(Command("variante", "variant"))
+async def cmd_variant(message: Message, command: CommandObject, config: WatchConfig, store: StateStore,
+                      settings: StockWatchSettings) -> None:
+    """Pick which product/colourway of the page to read.
+
+    A product page also carries its other colours; when the page's own id for
+    the one you want differs from the id in the URL, name it here.
+    `python -m stockwatch diagnose` prints the candidates.
+    """
+    if not command.args:
+        current = config.product_id or "(celui de l'URL)"
+        await message.answer(
+            f"🎨 Variante suivie : <b>{html.escape(current)}</b>\n"
+            "Pour changer : <code>/variante 63503980</code>\n"
+            "Les identifiants possibles sont donnés par <code>python -m stockwatch diagnose</code>."
+        )
+        return
+    if not _is_owner(message, settings):
+        await _deny(message)
+        return
+    variant = command.args.strip().split()[0]
+    if not variant.isalnum():
+        await message.answer("❌ Identifiant invalide. Exemple : <code>/variante 63503980</code>")
+        return
+    config.product_id = variant
+    await store.set_override("product_id", variant)
+    store.sizes.clear()   # the stock memory belonged to the previous variant
+    await store.save()
+    await message.answer(f"✅ Variante suivie : <b>{html.escape(variant)}</b>")
 
 
 @router.message(Command("intervalle", "interval"))
