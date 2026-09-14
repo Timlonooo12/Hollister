@@ -101,7 +101,7 @@ class StockWatchSettings(BaseSettings):
     cookie: SecretStr | None = Field(default=None, alias="STOCKWATCH_COOKIE")
     extra_headers_raw: str = Field(default="", alias="STOCKWATCH_EXTRA_HEADERS")
     proxy_url: SecretStr | None = Field(default=None, alias="STOCKWATCH_PROXY_URL")
-    http2: bool = Field(default=False, alias="STOCKWATCH_HTTP2")
+    http2: bool = Field(default=True, alias="STOCKWATCH_HTTP2")
     cache_buster: bool = Field(default=False, alias="STOCKWATCH_CACHE_BUSTER")
     html_fallback: bool = Field(default=True, alias="STOCKWATCH_HTML_FALLBACK")
 

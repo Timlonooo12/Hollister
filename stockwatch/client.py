@@ -54,9 +54,12 @@ class ProductClient:
         self._client: httpx.AsyncClient | None = None
 
     def _headers(self) -> dict[str, str]:
+        # A full desktop-Chrome header set, client hints included. Bot filters
+        # score the whole set, not just the User-Agent: a "Chrome" UA arriving
+        # without sec-ch-ua is a giveaway.
         headers = {
             "User-Agent": self._settings.user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": self._settings.accept_language,
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
@@ -65,6 +68,10 @@ class ProductClient:
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
             "Sec-Fetch-User": "?1",
+            "sec-ch-ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "Priority": "u=0, i",
         }
         if self._settings.cookie is not None:
             headers["Cookie"] = self._settings.cookie.get_secret_value()
@@ -94,11 +101,14 @@ class ProductClient:
         }
         if self._settings.proxy_url is not None:
             kwargs["proxy"] = self._settings.proxy_url.get_secret_value()
+        # Browsers speak HTTP/2; a client that negotiates HTTP/1.1 while
+        # claiming to be Chrome stands out to a bot filter. Enabled whenever the
+        # `h2` package is installed, unless the operator turns it off.
         if self._settings.http2:
             try:
                 import h2  # noqa: F401
             except ImportError:
-                logger.warning("STOCKWATCH_HTTP2 is on but `h2` is missing — install httpx[http2]. Falling back to HTTP/1.1.")
+                logger.info("HTTP/2 unavailable (`h2` not installed) — using HTTP/1.1.")
             else:
                 kwargs["http2"] = True
         self._client = httpx.AsyncClient(**kwargs)  # type: ignore[arg-type]

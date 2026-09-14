@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lancer le bot en permanence sur un Mac (utile quand l'IP d'un VPS est
+  filtrée par le pare-feu du marchand, alors qu'une connexion résidentielle
+  passe).
+
+  1. Adapter les deux chemins ci-dessous à ton installation.
+  2. cp deploy/com.stockwatch.bot.plist ~/Library/LaunchAgents/
+  3. launchctl load -w ~/Library/LaunchAgents/com.stockwatch.bot.plist
+  4. Réglages Système → Batterie → « Empêcher la mise en veille automatique
+     lorsque l'écran est éteint » (sur secteur), sinon le Mac endormi
+     n'alerte plus.
+
+  Arrêter : launchctl unload -w ~/Library/LaunchAgents/com.stockwatch.bot.plist
+  Journal : tail -f /tmp/stockwatch.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.stockwatch.bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/CHANGE_ME/Downloads/Hollister-main/.venv/bin/python</string>
+        <string>-m</string>
+        <string>stockwatch</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/CHANGE_ME/Downloads/Hollister-main</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/stockwatch.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/stockwatch.log</string>
+</dict>
+</plist>

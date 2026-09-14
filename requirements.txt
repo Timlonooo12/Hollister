@@ -2,7 +2,9 @@
 aiogram==3.13.1
 
 # --- HTTP ---
-httpx==0.27.2
+# L'extra http2 tire `h2` : parler HTTP/2 comme un navigateur évite une partie
+# des filtres anti-bot, qui remarquent un « Chrome » qui négocie du HTTP/1.1.
+httpx[http2]==0.27.2
 
 # --- Config / validation ---
 pydantic==2.9.2

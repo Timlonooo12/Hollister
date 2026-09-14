@@ -158,7 +158,7 @@ class TestBlankEnvValues:
         )
         assert "Mozilla/5.0" in s.user_agent
         assert s.poll_interval == 1.0
-        assert s.http2 is False
+        assert s.http2 is True   # HTTP/2 par défaut : voir requirements.txt
         assert s.sizes == ["XS", "S"]
 
     def test_a_blank_or_malformed_token_is_refused(self):

@@ -314,6 +314,23 @@ sudo systemctl daemon-reload && sudo systemctl enable --now stockwatch
 journalctl -u stockwatch -f
 ```
 
+### Quand l'IP du serveur est bloquée
+
+Constaté sur un VPS OVH : `HTTP 403`, corps de 149 octets, « Bad Request /
+Reference ID » — le pare-feu applicatif du marchand refuse les adresses de
+datacenter alors que la même requête passe depuis une connexion résidentielle.
+Ce n'est pas un problème de configuration, et aucun réglage d'en-têtes ne le
+règle de façon fiable. Par ordre de coût :
+
+1. **Faire tourner le bot depuis chez toi.** Un Mac suffit :
+   `deploy/com.stockwatch.bot.plist` est un LaunchAgent prêt à l'emploi
+   (redémarrage automatique inclus) ; pense à empêcher la veille.
+2. **Passer par un proxy résidentiel** : `STOCKWATCH_PROXY_URL=http://user:pass@hôte:port`.
+   Quelques euros par mois, et le VPS redevient utilisable.
+3. **Coller un cookie de navigateur** dans `STOCKWATCH_COOKIE` : parfois
+   suffisant, mais le cookie est lié à l'empreinte du navigateur et à son IP,
+   donc il expire vite. Dépannage, pas solution.
+
 ### Coût réel d'une vérification par seconde
 
 Une fiche produit pèse ~670 Ko (~150 Ko compressés sur le réseau) et sa lecture
