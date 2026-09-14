@@ -171,6 +171,45 @@ class TestRealCatalogueSchemas:
         assert normalize_size("_p") is None
         assert normalize_size("navy_p") is None
 
+    APOLLO_KEY = "APOLLO_STATE__product-mfe-web-service-ProductPageFrontend-config"
+
+    def test_apollo_cache_assigned_under_a_bracket_key(self):
+        """The real page ships its state as
+        `window['APOLLO_STATE__…-config'] = {…}` — a bracket assignment with a
+        service-specific key, so no fixed property name matches it."""
+        cache = {"CACHE": {
+            "SuggestedSearchAttributes:63503980": {"__typename": "SuggestedSearchAttributes",
+                                                   "id": "63503980"},
+            "Product:63503980": {"__typename": "Product", "productId": "63503980", "skus": [
+                {"__typename": "Sku", "inventory": 0, "inventoryStatus": "Unavailable",
+                 "productId": "63503980", "shortSku": "675056184", "sizePrimary": "XS_p"},
+                {"__typename": "Sku", "inventory": 6, "inventoryStatus": "InStock",
+                 "productId": "63503980", "shortSku": "675056185", "sizePrimary": "S_p"},
+            ]},
+        }}
+        body = (
+            "<script type=\"text/javascript\">window['" + self.APOLLO_KEY + "'] = "
+            + json.dumps(cache) + ";</script>"
+        )
+        result = parse_availability(body, product_id="63586319")
+        assert result.sizes == {"XS": False, "S": True}
+
+    def test_size_tiles_without_stock_do_not_pollute_the_reading(self):
+        cache = {"CACHE": {"Product:1": {"productId": "1",
+            "primarySizeArray": [
+                {"__typename": "SizeTile", "sizeText": "XS", "value": "XS_p",
+                 "label": "XS", "description": "Taille"},
+            ],
+            "skus": [{"__typename": "Sku", "inventory": 0, "inventoryStatus": "Unavailable",
+                      "productId": "1", "sizePrimary": "XS_p"}],
+        }}}
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(cache) + ";</script>"
+        assert parse_availability(body).sizes == {"XS": False}
+
+    def test_a_javascript_object_literal_is_skipped_quietly(self):
+        body = "<script>window.config = {unquoted: 'key', trailing: [1,2,],};</script>"
+        assert parse_availability(body, html_fallback=False).found is False
+
     def test_hollister_sku_list(self):
         result = parse_availability(json.dumps(self.HOLLISTER), product_id="63503980")
         assert result.sizes == {"XS": False, "S": True}

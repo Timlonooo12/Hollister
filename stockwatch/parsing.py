@@ -224,7 +224,22 @@ _ASSIGNMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Any assignment onto the global object, whatever the property is called.
+# Hollister ships its Apollo cache as
+#     window['APOLLO_STATE__product-mfe-web-service-ProductPageFrontend-config'] = {…}
+# — a bracket assignment with a service-specific key, so no fixed name matches.
+_GLOBAL_ASSIGNMENT_RE = re.compile(
+    r"""(?:window|self|globalThis)\s*
+        (?:\.\s*[A-Za-z_$][\w$]*
+          |\[\s*(?P<quote>['"])[^'"\n]{1,200}(?P=quote)\s*\]
+        )\s*=\s*""",
+    re.VERBOSE,
+)
+
 _MAX_BLOBS = 40
+# A single state blob can weigh several hundred kilobytes; beyond this it is not
+# a page state any more and scanning it would blow the one-second budget.
+_MAX_LITERAL_BYTES = 8_000_000
 
 
 def _scan_json_value(text: str, start: int) -> str | None:
@@ -291,16 +306,23 @@ def iter_json_blobs(body: str) -> Iterator[Any]:
         if seen >= _MAX_BLOBS:
             return
 
-    for match in _ASSIGNMENT_RE.finditer(body):
-        index = match.end()
-        while index < len(body) and body[index] in " \t\r\n":
-            index += 1
+    starts: list[int] = []
+    for pattern in (_ASSIGNMENT_RE, _GLOBAL_ASSIGNMENT_RE):
+        for match in pattern.finditer(body):
+            index = match.end()
+            while index < len(body) and body[index] in " \t\r\n":
+                index += 1
+            starts.append(index)
+
+    for index in sorted(set(starts)):
         literal = _scan_json_value(body, index)
-        if not literal:
+        if not literal or len(literal) > _MAX_LITERAL_BYTES:
             continue
         try:
             yield json.loads(literal)
         except json.JSONDecodeError:
+            # Plain JS object literals (unquoted keys, trailing commas) are not
+            # JSON; skipping them costs nothing since the state blobs are.
             continue
         seen += 1
         if seen >= _MAX_BLOBS:
