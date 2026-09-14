@@ -1,4 +1,6 @@
-# Déploiement systemd (VPS / Raspberry Pi).
+# Déploiement systemd (VPS / Raspberry Pi), à côté de n'importe quel autre
+# service : ce bot n'écoute sur aucun port et vit dans son propre dossier.
+#
 #   sudo cp deploy/stockwatch.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now stockwatch
 #   journalctl -u stockwatch -f
@@ -6,17 +8,25 @@
 Description=Bot Telegram de surveillance de stock
 After=network-online.target
 Wants=network-online.target
+# Une alerte perdue vaut mieux qu'un bot mort : on redémarre sans limite.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=stockwatch
 WorkingDirectory=/opt/stockwatch
-EnvironmentFile=/opt/stockwatch/.env
+# Pas d'EnvironmentFile : l'application lit elle-même /opt/stockwatch/.env, ce
+# qui évite les pièges de quoting de systemd sur le User-Agent et le libellé.
 ExecStart=/opt/stockwatch/.venv/bin/python -m stockwatch
 Restart=always
 RestartSec=5
-# Une alerte perdue vaut mieux qu'un bot mort : on redémarre sans limite.
-StartLimitIntervalSec=0
+
+# Le service n'a besoin que de son dossier et du réseau sortant.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/stockwatch
 
 [Install]
 WantedBy=multi-user.target

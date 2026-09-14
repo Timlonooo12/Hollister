@@ -290,17 +290,38 @@ pas dans l'archive : ils restent en place. Dépôt privé → crée un token
 
 ## 7. Déploiement 24/7
 
+Le bot **n'écoute sur aucun port** : il ne fait que des requêtes sortantes. Il
+cohabite donc sans réglage avec n'importe quel autre service — il lui faut
+seulement son propre dossier, son propre environnement virtuel et son propre
+token Telegram.
+
 **systemd** (VPS, Raspberry Pi) — le fichier est fourni :
 
 ```bash
-sudo useradd --system --create-home --home-dir /opt/stockwatch stockwatch
-sudo cp -r . /opt/stockwatch && cd /opt/stockwatch
-sudo -u stockwatch python3 -m venv .venv
-sudo -u stockwatch .venv/bin/pip install -r requirements.txt
+# Python 3.11+ requis : Debian 12 l'a, Ubuntu 22.04 non (3.10).
+python3 --version
+
+sudo useradd --system --home-dir /opt/stockwatch stockwatch
+sudo mkdir -p /opt/stockwatch && sudo cp -r . /opt/stockwatch && cd /opt/stockwatch
+sudo rm -rf .venv                   # un venv créé ailleurs n'est pas portable
+sudo python3 -m venv .venv && sudo .venv/bin/pip install -q -r requirements.txt
+sudo chown -R stockwatch:stockwatch /opt/stockwatch && sudo chmod 600 /opt/stockwatch/.env
+
+sudo -u stockwatch .venv/bin/python -m stockwatch diagnose   # le VPS voit-il le stock ?
+
 sudo cp deploy/stockwatch.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now stockwatch
 journalctl -u stockwatch -f
 ```
+
+### Coût réel d'une vérification par seconde
+
+Une fiche produit pèse ~670 Ko (~150 Ko compressés sur le réseau) et sa lecture
+coûte ~0,2 s de CPU. À une vérification par seconde, cela fait donc environ
+**20 % d'un cœur en continu et ~10 Go de trafic par jour**. Sur un petit VPS,
+`STOCKWATCH_POLL_INTERVAL=3` divise les deux par trois — et ne coûte presque
+rien en réactivité, le CDN du marchand ne rafraîchissant pas sa réponse à la
+milliseconde.
 
 **Docker** :
 
