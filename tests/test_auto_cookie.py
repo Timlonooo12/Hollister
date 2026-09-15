@@ -146,3 +146,34 @@ class TestClientIdentity:
         headers = client._headers()
         assert headers["Cookie"] == "neuf=2"
         assert headers["User-Agent"] == "Safari/26"
+
+
+class TestBrowserArguments:
+    """Le navigateur reçoit une locale, pas un en-tête Accept-Language."""
+
+    async def test_the_locale_is_normalised(self, monkeypatch):
+        import stockwatch.browser as browser_module
+
+        seen: dict[str, object] = {}
+
+        class FakePlaywright:
+            def __init__(self):
+                self.chromium = self
+
+            async def launch(self, **kwargs):
+                seen["args"] = kwargs.get("args")
+                raise RuntimeError("arrêt volontaire du test")
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "playwright.async_api",
+            type("M", (), {"async_playwright": lambda: FakePlaywright()}),
+        )
+        with pytest.raises(browser_module.BrowserUnavailable):
+            await browser_module.fetch_session("https://example.test", locale="fr-FR,fr;q=0.9")
+        assert "--no-sandbox" in (seen.get("args") or [])

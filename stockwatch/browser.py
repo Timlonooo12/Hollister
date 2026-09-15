@@ -15,6 +15,7 @@ avec le cookie fourni à la main.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 
@@ -22,6 +23,23 @@ logger = logging.getLogger(__name__)
 
 # Le temps que le contrôle anti-bot s'exécute et pose ses cookies.
 _SETTLE_SECONDS = 4.0
+
+
+async def _settle_and_collect(page: object, context: object) -> str:
+    """Laisser le contrôle s'exécuter, puis relever les cookies posés."""
+    import asyncio
+
+    with contextlib.suppress(Exception):
+        await page.wait_for_load_state("networkidle", timeout=15_000)  # type: ignore[attr-defined]
+    await asyncio.sleep(_SETTLE_SECONDS)
+    cookies = await context.cookies()  # type: ignore[attr-defined]
+    names = [cookie["name"] for cookie in cookies if cookie.get("name")]
+    logger.info("Cookies vus par le navigateur : %s", ", ".join(names[:12]) or "aucun")
+    return "; ".join(
+        f"{cookie['name']}={cookie['value']}"
+        for cookie in cookies
+        if cookie.get("name") and cookie.get("value") is not None
+    )
 
 
 @dataclass
@@ -55,7 +73,9 @@ async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.
             "/opt/stockwatch/.venv/bin/playwright install chromium"
         ) from exc
 
-    import asyncio
+    # Le réglage du bot est un en-tête Accept-Language complet
+    # (« fr-FR,fr;q=0.9 ») ; le navigateur, lui, attend une locale (« fr-FR »).
+    locale = locale.split(",")[0].split(";")[0].strip() or "fr-FR"
 
     async with async_playwright() as playwright:
         try:
@@ -84,21 +104,29 @@ async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.
                 viewport={"width": 1440, "height": 900},
             )
             page = await context.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            # Le contrôle s'exécute après le rendu : on lui laisse le temps de
-            # poser ses cookies avant de les lire.
-            await asyncio.sleep(_SETTLE_SECONDS)
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+            status = response.status if response is not None else None
+
+            header = await _settle_and_collect(page, context)
+            if not header:
+                # Un contrôle anti-bot pose souvent ses cookies au second appel :
+                # la première visite ne sert qu'à exécuter son script.
+                logger.info("Aucun cookie à la première visite, rechargement…")
+                await page.reload(wait_until="load", timeout=timeout * 1000)
+                header = await _settle_and_collect(page, context)
 
             user_agent = await page.evaluate("() => navigator.userAgent")
-            cookies = await context.cookies()
-            header = "; ".join(
-                f"{cookie['name']}={cookie['value']}"
-                for cookie in cookies
-                if cookie.get("name") and cookie.get("value") is not None
-            )
+            final_url = page.url
+            title = await page.title()
+            length = await page.evaluate("() => document.documentElement.outerHTML.length")
         finally:
             await browser.close()
 
     if not header:
-        raise BrowserUnavailable("Le navigateur n'a obtenu aucun cookie — page inaccessible ?")
+        raise BrowserUnavailable(
+            "Le navigateur n'a obtenu aucun cookie.\n"
+            f"HTTP {status} · {length} caractères · « {title[:60]} »\n"
+            f"URL finale : {final_url[:120]}"
+        )
+    logger.info("Cookie obtenu : HTTP %s, %s caractères, titre « %s »", status, length, title[:60])
     return BrowserSession(cookie=header, user_agent=str(user_agent))
