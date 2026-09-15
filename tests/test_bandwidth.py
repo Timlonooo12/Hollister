@@ -133,13 +133,16 @@ class TestMonitorOnNotModified:
     async def test_bytes_are_accumulated(self, settings, config, state, fake_notifier):
         from stockwatch.client import FetchResult
 
-        result = FetchResult(url="u", status_code=304, body="", elapsed=0.01,
-                             bytes_downloaded=200, not_modified=True)
-        monitor = Monitor(settings, config, FakeClient([result]), fake_notifier, state)
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(PAGE) + ";</script>"
+        first = FetchResult(url="u", status_code=200, body=body, elapsed=0.01, bytes_downloaded=1_000)
+        unchanged = FetchResult(url="u", status_code=304, body="", elapsed=0.01,
+                                bytes_downloaded=200, not_modified=True)
+        monitor = Monitor(settings, config, FakeClient([first, unchanged]), fake_notifier, state)
         for _ in range(3):
             await monitor.check_once()
-        assert state.stats["bytes_today"] == 600
-        assert state.stats["bytes_total"] == 600
+        await monitor._drain()
+        assert state.stats["bytes_today"] == 1_400        # 1 page complète + 2 « inchangé »
+        assert state.stats["bytes_total"] == 1_400
 
 
 class TestDailyBudget:
@@ -173,3 +176,50 @@ class TestDailyBudget:
         state.stats["bytes_day"] = "1999-01-01"
         assert state.add_bytes(500) == 500
         assert state.stats["bytes_total"] == 1_500
+
+
+class TestNotModifiedWithoutAnyReading:
+    """Un « 304 » ne vaut que si l'on a déjà lu la page : sinon il ne fait que
+    confirmer qu'une réponse inexploitable est toujours la même."""
+
+    def _unchanged(self):
+        from stockwatch.client import FetchResult
+
+        return FetchResult(url="u", status_code=304, body="", elapsed=0.01,
+                           bytes_downloaded=180, not_modified=True)
+
+    async def test_the_etag_is_dropped_and_the_page_re_downloaded(
+        self, settings, config, state, fake_notifier
+    ):
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(PAGE) + ";</script>"
+        client = FakeClient([self._unchanged(), body])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+
+        tick = await monitor.check_once()
+        await monitor._drain()
+
+        assert client.forgotten == 1
+        assert len(client.calls) == 2
+        assert tick.ok is True
+        assert tick.sizes == {"XS": False, "S": False}
+
+    async def test_a_persistent_304_is_reported_not_swallowed(
+        self, settings, config, state, fake_notifier
+    ):
+        client = FakeClient([self._unchanged()])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+        tick = await monitor.check_once()
+        assert tick.ok is False
+        assert "jamais abouti" in (tick.error or "")
+
+    async def test_a_304_after_a_successful_reading_is_still_reused(
+        self, settings, config, state, fake_notifier
+    ):
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(PAGE) + ";</script>"
+        client = FakeClient([body, self._unchanged()])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+        await monitor.check_once()
+        tick = await monitor.check_once()
+        assert tick.not_modified is True
+        assert tick.sizes == {"XS": False, "S": False}
+        assert getattr(client, "forgotten", 0) == 0

@@ -132,6 +132,17 @@ class ProductClient:
             await self._client.aclose()
             self._client = None
 
+    def forget_validators(self, url: str | None = None) -> None:
+        """Oublier l'ETag mémorisé pour forcer un téléchargement complet.
+
+        Un « 304 » ne vaut que si l'on a déjà lu la page avec succès : sinon il
+        ne fait que confirmer qu'une réponse inexploitable n'a pas changé.
+        """
+        if url is None:
+            self._validators.clear()
+        else:
+            self._validators.pop(url, None)
+
     async def fetch(self, url: str, *, cache_buster: bool | None = None) -> FetchResult:
         """GET `url` once. Never raises: failures come back inside the result."""
         if self._client is None:

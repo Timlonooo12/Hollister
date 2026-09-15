@@ -91,6 +91,24 @@ class Monitor:
                 self.state.bump("blocked")
             return self._record_failure(result, result.error or "unknown error")
 
+        if result.not_modified and not self._last_sizes:
+            # « Inchangée » ne sert à rien tant qu'on n'a jamais su la lire : le
+            # serveur confirme seulement qu'une réponse inexploitable est la
+            # même. On oublie l'ETag et on retélécharge tout de suite.
+            self.client.forget_validators(url)
+            result = await self.client.fetch(url)
+            self.state.bump("checks")
+            if result.bytes_downloaded:
+                self.state.add_bytes(result.bytes_downloaded)
+            if not result.ok:
+                return self._record_failure(result, result.error or "unknown error")
+            if result.not_modified:
+                return self._record_failure(
+                    result,
+                    "le site répond « inchangé » alors qu'aucune lecture n'a jamais abouti",
+                    strategy="304-sans-lecture",
+                )
+
         if result.not_modified:
             # Le serveur confirme que la page n'a pas bougé d'un octet : rien
             # n'a pu changer côté stock, inutile de re-télécharger ni d'analyser.

@@ -50,6 +50,9 @@ class FakeClient:
             return item
         return FetchResult(url=url, status_code=200, body=item, elapsed=0.01)
 
+    def forget_validators(self, url: str | None = None) -> None:
+        self.forgotten = getattr(self, "forgotten", 0) + 1
+
     async def aclose(self) -> None:
         return None
 
