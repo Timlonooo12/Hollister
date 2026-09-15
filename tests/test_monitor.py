@@ -288,3 +288,36 @@ class TestQuietHours:
 
         assert client.calls                            # il a bien vérifié
         assert monitor.sleeping is False
+
+
+class TestFailureMessages:
+    """Un message d'échec doit dire ce que le serveur a renvoyé : sans ça,
+    impossible de distinguer un contrôle anti-bot d'un site qui a changé."""
+
+    async def test_the_message_carries_the_status_and_the_size(self, settings, config, state, fake_notifier):
+        monitor = build(settings, config, state, fake_notifier, ["<html>" + "x" * 60_000 + "</html>"])
+        tick = await monitor.check_once()
+        assert "HTTP 200" in (tick.error or "")
+        assert "Ko" in (tick.error or "")
+
+    async def test_a_response_far_shorter_than_usual_is_called_out(
+        self, settings, config, state, fake_notifier
+    ):
+        big = page(XS=False, S=False) + " " * 200_000
+        monitor = build(settings, config, state, fake_notifier, [big, "<html>trop court</html>"])
+        await monitor.check_once()                      # apprend la taille habituelle
+        tick = await monitor.check_once()
+        assert "contrôle" in (tick.error or "")
+
+    async def test_a_missing_colour_names_the_ones_found(self, settings, config, state, fake_notifier):
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps({"CACHE": {
+            "Product:1": {"productId": "1", "colorName": "Vert sauge", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+            "Product:2": {"productId": "2", "colorName": "Marine", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+        }}) + ";</script>"
+        config.product_color = "Blanc"
+        monitor = build(settings, config, state, fake_notifier, [body])
+        tick = await monitor.check_once()
+        assert "Blanc" in (tick.error or "")
+        assert "Vert sauge" in (tick.error or "") and "Marine" in (tick.error or "")

@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from .client import FetchResult, ProductClient
 from .config import StockWatchSettings, WatchConfig
 from .notifier import TelegramNotifier
-from .parsing import ParseResult, parse_availability
+from .parsing import ParseResult, owners_matching_colour, parse_availability
 from .schedule import format_window, seconds_until_wake
 from .state import StateStore, utcnow
 
@@ -72,6 +72,7 @@ class Monitor:
         self.last_error: str | None = None
         self._degraded_notified = False
         self._pending: set[asyncio.Task[object]] = set()
+        self._typical_body = 0
         self._last_sizes: dict[str, bool] = {}
         self._last_labels: dict[str, str] = {}
         self._budget_notified = False
@@ -116,11 +117,30 @@ class Monitor:
             html_fallback=self.settings.html_fallback,
         )
         if not parsed.found:
+            # « Anormalement courte » se juge par rapport aux pages déjà lues,
+            # pas dans l'absolu : une réponse cinq fois plus petite que d'habitude
+            # est un contrôle anti-bot servi en 200, pas une fiche produit.
+            if self._typical_body > 50_000 and len(result.body) < self._typical_body // 5:
+                return self._record_failure(
+                    result,
+                    f"réponse anormalement courte ({len(result.body)} caractères) pour une fiche "
+                    "produit : le site a probablement servi une page de contrôle. Réessaie, "
+                    "ajoute un cookie de navigateur (STOCKWATCH_COOKIE) ou espace les vérifications",
+                    strategy=parsed.strategy,
+                )
             if parsed.strategy == "json-ambiguous-products":
                 message = (
                     "la page contient plusieurs produits (coloris, recommandations) et aucun ne "
                     "correspond à l'identifiant de l'URL : impossible de savoir lequel est affiché. "
                     "Lance `python -m stockwatch diagnose` puis choisis-le avec /variante <id>"
+                )
+            elif self.config.product_color and parsed.labels and not _colour_present(
+                parsed.labels, self.config.product_color
+            ):
+                known = ", ".join(sorted(set(parsed.labels.values()))[:8]) or "aucun"
+                message = (
+                    f"le coloris « {self.config.product_color} » n'apparaît plus dans la page. "
+                    f"Coloris détectés : {known}. Choisis-en un avec /menu → 🎨 Coloris"
                 )
             elif parsed.strategy == "html-no-stock-state":
                 message = (
@@ -130,8 +150,8 @@ class Monitor:
                 )
             else:
                 message = (
-                    "page récupérée mais aucune taille lisible (structure changée ?) — "
-                    "lance `python -m stockwatch diagnose`"
+                    f"page récupérée (HTTP {result.status_code}, {len(result.body) // 1024} Ko) "
+                    "mais aucune taille lisible — lance `python -m stockwatch diagnose`"
                 )
             return self._record_failure(result, message, strategy=parsed.strategy)
 
@@ -145,6 +165,7 @@ class Monitor:
             )
 
         self._recover()
+        self._typical_body = max(self._typical_body, len(result.body))
         newly_available = self._diff(parsed)
         self._last_sizes = dict(parsed.sizes)
         if parsed.labels:
@@ -447,6 +468,10 @@ class Monitor:
             lines.append(f"🎚 Budget : {self.settings.daily_budget_mb:g} Mo/jour ({state})")
         lines.append(f"👥 Abonnés : {len(self.notifier.recipients())}")
         return lines
+
+
+def _colour_present(labels: dict[str, str], wanted: str) -> bool:
+    return bool(owners_matching_colour(labels, wanted))
 
 
 def _human_bytes(count: int) -> str:
