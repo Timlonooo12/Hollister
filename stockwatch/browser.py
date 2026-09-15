@@ -25,6 +25,22 @@ logger = logging.getLogger(__name__)
 _SETTLE_SECONDS = 4.0
 
 
+def _visible_user_agent(browser: object) -> str | None:
+    """Le User-Agent du navigateur, débarrassé de la mention « Headless ».
+
+    On garde la plateforme réelle : Chromium envoie par ailleurs des indices
+    client (`sec-ch-ua-platform`) qui disent « Linux », et prétendre venir d'un
+    Mac créerait une incohérence — précisément ce que cherche un filtre.
+    """
+    version = getattr(browser, "version", None)
+    if not version:
+        return None
+    return (
+        f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        f"(KHTML, like Gecko) Chrome/{str(version).split('.')[0]}.0.0.0 Safari/537.36"
+    )
+
+
 async def _settle_and_collect(page: object, context: object) -> str:
     """Laisser le contrôle s'exécuter, puis relever les cookies posés."""
     import asyncio
@@ -85,7 +101,12 @@ async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.
                 # privilèges que le service n'a volontairement pas, et /dev/shm
                 # y est trop petit. Le navigateur ne visite qu'une URL connue,
                 # celle que l'on surveille déjà.
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    # Sans cela, Chromium annonce lui-même qu'il est piloté.
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
         except Exception as exc:  # pragma: no cover - dépend de l'installation
             detail = str(exc).splitlines()[0]
@@ -99,9 +120,19 @@ async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.
             ) from exc
 
         try:
+            # Par défaut, Playwright s'annonce « HeadlessChrome » dans son
+            # User-Agent : c'est le premier signal que cherche un filtre
+            # anti-bot, et il refuse avant même de servir la page.
             context = await browser.new_context(
                 locale=locale,
                 viewport={"width": 1440, "height": 900},
+                user_agent=_visible_user_agent(browser),
+                timezone_id="Europe/Paris",
+                extra_http_headers={"Accept-Language": f"{locale},{locale.split('-')[0]};q=0.9"},
+            )
+            # `navigator.webdriver` est l'autre marqueur immédiat.
+            await context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
             )
             page = await context.new_page()
             response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)

@@ -177,3 +177,33 @@ class TestBrowserArguments:
         with pytest.raises(browser_module.BrowserUnavailable):
             await browser_module.fetch_session("https://example.test", locale="fr-FR,fr;q=0.9")
         assert "--no-sandbox" in (seen.get("args") or [])
+
+
+class TestHeadlessMarkers:
+    """Un filtre anti-bot refuse d'abord sur les marqueurs évidents : le
+    User-Agent « HeadlessChrome » et navigator.webdriver."""
+
+    def test_the_user_agent_drops_the_headless_mention(self):
+        from stockwatch.browser import _visible_user_agent
+
+        class Browser:
+            version = "128.0.6613.18"
+
+        agent = _visible_user_agent(Browser())
+        assert "Headless" not in agent
+        assert "Chrome/128" in agent
+
+    def test_the_platform_stays_the_real_one(self):
+        from stockwatch.browser import _visible_user_agent
+
+        class Browser:
+            version = "128.0.6613.18"
+
+        # Chromium annonce « Linux » dans ses indices client : prétendre venir
+        # d'un Mac serait une incohérence repérable.
+        assert "Linux" in _visible_user_agent(Browser())
+
+    def test_no_version_means_no_override(self):
+        from stockwatch.browser import _visible_user_agent
+
+        assert _visible_user_agent(object()) is None
