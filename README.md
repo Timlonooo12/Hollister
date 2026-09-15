@@ -415,9 +415,12 @@ collecte tous les documents JSON de la page (état embarqué type
 d'API brute) et retient les objets qui portent **à la fois** une taille
 (`XS`, `X-Small`, `Taille S`…) et un signal de stock (`inStock`, `soldOut`,
 `availability`, `quantity`…). Les signaux d'un même objet doivent concorder
-(`inStock: true` + `quantity: 0` ⇒ épuisé). Quand la page identifie le produit
-surveillé, les autres produits (recommandations, « vous aimerez aussi ») sont
-ignorés. Quand les tailles et les stocks vivent dans deux structures distinctes, ils sont
+(`inStock: true` + `quantity: 0` ⇒ épuisé). Quand la page identifie le produit surveillé, chaque lecture est rattachée au
+produit **le plus proche** dans la structure, jamais à un ancêtre : sur un cache
+Apollo, le produit affiché est nommé à la racine et « tout ce qui descend de
+lui » engloberait les autres coloris. Faute d'un rattachement net, le parseur
+refuse de conclure plutôt que de fusionner des stocks qui ne sont pas les
+siens. Quand les tailles et les stocks vivent dans deux structures distinctes, ils sont
 recoupés par identifiant de variante (sku). Si aucun JSON n'est exploitable, les
 boutons de taille du HTML sont lus en dernier recours — et **uniquement** si la
 page marque réellement l'indisponibilité quelque part (attribut `disabled`,
@@ -431,7 +434,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 95 tests
+python -m pytest -q        # 97 tests
 python -m ruff check .
 ```
 
@@ -448,7 +451,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 95 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 97 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

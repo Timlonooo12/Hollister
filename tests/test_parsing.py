@@ -236,6 +236,39 @@ class TestRealCatalogueSchemas:
         assert parse_availability(json.dumps(payload), product_id="111").sizes == {"XS": False}
         assert parse_availability(json.dumps(payload), product_id="222").sizes == {"XS": True}
 
+    def test_naming_the_shown_product_must_not_widen_to_the_other_colourways(self):
+        """Régression : sur le cache Apollo de Hollister, le produit affiché est
+        nommé à la racine et le cache contient tous les coloris. Cibler « tout
+        ce qui descend du nœud portant cet identifiant » revenait à fusionner
+        les 17 coloris — le bot a annoncé « DISPO XS, S » sur un article épuisé."""
+        cache = {"productId": "63503980", "CACHE": {
+            "Product:63503980": {"productId": "63503980", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"},
+                {"sizePrimary": "S_p", "inventory": 0, "inventoryStatus": "Unavailable"},
+                {"sizePrimary": "XXL_p", "inventory": 3, "inventoryStatus": "InStock"},
+            ]},
+            "Product:63492467": {"productId": "63492467", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 9, "inventoryStatus": "InStock"},
+                {"sizePrimary": "S_p", "inventory": 9, "inventoryStatus": "InStock"},
+            ]},
+        }}
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(cache) + ";</script>"
+        result = parse_availability(body, product_id="63503980")
+        assert result.sizes == {"XS": False, "S": False, "XXL": True}
+        assert all(observation.owner == "63503980" for observation in result.observations)
+
+    def test_an_ancestor_covering_several_products_is_refused(self):
+        cache = {"collectionId": "63586319", "CACHE": {
+            "Product:1": {"productId": "1", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+            "Product:2": {"productId": "2", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 5, "inventoryStatus": "InStock"}]},
+        }}
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(cache) + ";</script>"
+        result = parse_availability(body, product_id="63586319")
+        assert result.strategy == "json-ambiguous-products"
+        assert result.sizes == {}
+
     def test_one_product_needs_no_disambiguation(self):
         payload = {"product": {"productId": "111", "skus": [
             {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"},

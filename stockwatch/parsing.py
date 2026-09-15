@@ -610,18 +610,36 @@ def parse_availability(body: str, *, product_id: str | None = None, html_fallbac
         strategy = "json-join"
 
     if observations:
+        # 1. Le cas net : des lectures rattachées exactement au produit demandé.
+        #    On compare au produit *le plus proche* de chaque lecture, jamais à
+        #    un ancêtre : sur un cache Apollo, le produit affiché est nommé à la
+        #    racine, et « tout ce qui descend de lui » englobe aussi les autres
+        #    coloris — ce qui revient à annoncer le stock d'un autre article.
+        if product_id:
+            owned = [observation for observation in observations if observation.owner == product_id]
+            if owned:
+                return ParseResult(
+                    sizes=merge_observations(owned),
+                    observations=owned,
+                    strategy=f"{strategy}-focused",
+                )
+
+        # 2. Faute de mieux : les lectures situées sous un nœud qui nomme le
+        #    produit, à condition qu'elles ne relèvent que d'un seul produit.
         focused = [observation for observation in observations if observation.focused]
         if focused:
-            return ParseResult(
-                sizes=merge_observations(focused),
-                observations=focused,
-                strategy=f"{strategy}-focused",
-            )
+            if len({observation.owner for observation in focused if observation.owner}) <= 1:
+                return ParseResult(
+                    sizes=merge_observations(focused),
+                    observations=focused,
+                    strategy=f"{strategy}-focused",
+                )
+            return ParseResult(sizes={}, observations=observations, strategy="json-ambiguous-products")
+
+        # 3. Aucune piste : on ne conclut que si toute la page parle d'un seul
+        #    produit. Sinon on préfère dire qu'on ne sait pas.
         owners = {observation.owner for observation in observations if observation.owner}
         if len(owners) > 1:
-            # A product page also carries its other colourways and its
-            # recommendations. Merging them would alert on another product's
-            # stock, so say "unreadable" instead of guessing which one is shown.
             return ParseResult(sizes={}, observations=observations, strategy="json-ambiguous-products")
         return ParseResult(
             sizes=merge_observations(observations),
