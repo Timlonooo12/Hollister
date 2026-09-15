@@ -503,6 +503,7 @@ class Monitor:
                     self.config.product_url,
                     locale=self.settings.accept_language,
                     proxy=proxy.get_secret_value() if proxy else None,
+                    headless=self.settings.browser_headless,
                 )
             except BrowserUnavailable as exc:
                 logger.warning("Cookie non renouvelé : %s", exc)

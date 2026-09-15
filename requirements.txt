@@ -7,6 +7,11 @@ aiogram==3.13.1
 # brotli : ~20 % de moins sur le fil que gzip. socks : proxies socks5://.
 httpx[http2,brotli,socks]==0.27.2
 
+# --- Empreinte TLS de navigateur (contournement des filtres anti-bot) ---
+# Optionnel côté usage, installé par défaut : sans lui, STOCKWATCH_IMPERSONATE
+# est ignoré et le bot utilise httpx, dont la signature TLS est reconnaissable.
+curl_cffi==0.16.3
+
 # --- Config / validation ---
 pydantic==2.9.2
 pydantic-settings==2.6.1

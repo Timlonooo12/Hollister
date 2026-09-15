@@ -223,3 +223,49 @@ class TestNotModifiedWithoutAnyReading:
         assert tick.not_modified is True
         assert tick.sizes == {"XS": False, "S": False}
         assert getattr(client, "forgotten", 0) == 0
+
+
+class TestImpersonatedTransport:
+    """Variante « empreinte de navigateur » : un filtre anti-bot reconnaît la
+    signature TLS d'une bibliothèque Python quels que soient ses en-têtes."""
+
+    def _settings(self, url, **extra):
+        return StockWatchSettings(_env_file=None, STOCKWATCH_BOT_TOKEN="1:x",
+                                  STOCKWATCH_PRODUCT_URL=url, **extra)
+
+    async def test_it_fetches_and_counts_like_the_other(self, server):
+        settings = self._settings(server, STOCKWATCH_IMPERSONATE="safari17_0")
+        client = ProductClient(settings)
+        try:
+            first = await client.fetch(server)
+            second = await client.fetch(server)
+        finally:
+            await client.aclose()
+
+        assert first.ok and first.status_code == 200
+        assert first.bytes_downloaded > 0
+        assert "APOLLO_STATE__x" in first.body
+        # Les requêtes conditionnelles fonctionnent aussi par ce chemin.
+        assert second.not_modified is True
+        assert second.bytes_downloaded < first.bytes_downloaded
+
+    async def test_it_stays_off_without_the_setting(self, server):
+        client = ProductClient(self._settings(server))
+        assert client._impersonation() == ""
+        await client.aclose()
+
+    async def test_an_unavailable_library_falls_back_quietly(self, server, monkeypatch):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def refuse(name, *args, **kwargs):
+            if name == "curl_cffi":
+                raise ImportError("absent")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", refuse)
+        client = ProductClient(self._settings(server, STOCKWATCH_IMPERSONATE="safari17_0"))
+        # Le réglage est ignoré plutôt que de faire échouer chaque vérification.
+        assert client._impersonation() == ""
+        await client.aclose()

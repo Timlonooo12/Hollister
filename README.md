@@ -329,6 +329,25 @@ python -m stockwatch cookie --auto     # en ligne de commande
 
 `/status` indique l'âge du cookie et le nombre de renouvellements.
 
+### Se passer de cookie : imiter un vrai navigateur
+
+Avant de bricoler des cookies, il vaut la peine d'essayer ceci :
+
+```bash
+STOCKWATCH_IMPERSONATE=safari17_0
+```
+
+Les filtres anti-bot comparent la **signature TLS** du client à celles des
+navigateurs connus. httpx — comme toute bibliothèque Python — s'y distingue au
+premier coup d'œil, quels que soient les en-têtes envoyés ; c'est ce qui
+explique qu'un site serve une page amputée à un script et la page complète au
+même en-tête depuis Safari. `curl_cffi` reproduit l'empreinte d'un vrai
+navigateur, sans en lancer aucun.
+
+Valeurs utiles : `safari17_0`, `safari18_0`, `chrome124`, `chrome131`,
+`firefox133`. Vérifie avec `diagnose` que la page revient complète ; si oui, le
+cookie devient inutile et la question du renouvellement disparaît.
+
 ### Savoir qu'il a expiré
 
 Un site ne dit jamais « ton cookie a expiré » : il refuse la requête, ou sert
@@ -445,6 +464,7 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_ALERT_ON_FIRST_SEEN` | `true` | Alerter si déjà dispo au démarrage |
 | `STOCKWATCH_REPEAT_ALERT_MINUTES` | `0` | Rappel tant que c'est dispo (0 = aucun) |
 | `STOCKWATCH_COOKIE` / `STOCKWATCH_PROXY_URL` | vide | Contournement d'un blocage |
+| `STOCKWATCH_IMPERSONATE` | vide | Imiter la signature TLS d'un navigateur (`safari17_0`…) |
 | `STOCKWATCH_AUTO_COOKIE` | `true` | Renouveler le cookie seul (navigateur headless) |
 | `STOCKWATCH_COOKIE_REFRESH_MINUTES` | `180` | Âge au-delà duquel on en cherche un neuf |
 | `STOCKWATCH_CONDITIONAL_REQUESTS` | `true` | ETag : ne retélécharge la page que si elle a changé |
@@ -650,7 +670,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 195 tests
+python -m pytest -q        # 198 tests
 python -m ruff check .
 ```
 
@@ -667,7 +687,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 195 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 198 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

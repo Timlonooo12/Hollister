@@ -121,6 +121,21 @@ class ProductClient:
             if user_agent:
                 self._client.headers["User-Agent"] = user_agent
 
+    def _impersonation(self) -> str:
+        """Le profil de navigateur à imiter, s'il est demandé et disponible."""
+        wanted = self._settings.impersonate.strip()
+        if not wanted:
+            return ""
+        try:
+            import curl_cffi  # noqa: F401
+        except ImportError:
+            logger.warning(
+                "STOCKWATCH_IMPERSONATE est renseigné mais curl_cffi n'est pas installé "
+                "(pip install curl_cffi) — requêtes httpx classiques."
+            )
+            return ""
+        return wanted
+
     async def start(self) -> None:
         if self._client is not None:
             return
@@ -167,6 +182,8 @@ class ProductClient:
 
     async def fetch(self, url: str, *, cache_buster: bool | None = None) -> FetchResult:
         """GET `url` once. Never raises: failures come back inside the result."""
+        if self._impersonation():
+            return await self._fetch_impersonated(url, cache_buster=cache_buster)
         if self._client is None:
             await self.start()
         assert self._client is not None
@@ -231,6 +248,76 @@ class ProductClient:
             blocked=blocked,
             bytes_downloaded=received,
         )
+
+
+    # -- variante « empreinte de navigateur » ------------------------------
+    async def _fetch_impersonated(self, url: str, *, cache_buster: bool | None = None) -> FetchResult:
+        """Même requête, mais avec la signature TLS d'un vrai navigateur.
+
+        Un filtre anti-bot compare cette empreinte à celles des navigateurs
+        connus : httpx, comme toute bibliothèque Python, s'y distingue au
+        premier coup d'œil, quels que soient les en-têtes envoyés.
+        """
+        from curl_cffi import requests as curl_requests
+
+        target = url
+        bust = self._settings.cache_buster if cache_buster is None else cache_buster
+        if bust:
+            separator = "&" if "?" in target else "?"
+            target = f"{target}{separator}_={int(time.time() * 1000)}"
+
+        headers = {key: value for key, value in self._headers().items()
+                   if key.lower() not in {"user-agent", "sec-ch-ua", "sec-ch-ua-mobile",
+                                          "sec-ch-ua-platform", "accept-encoding"}}
+        if self._settings.conditional_requests:
+            etag, last_modified = self._validators.get(url, (None, None))
+            if etag:
+                headers["If-None-Match"] = etag
+            if last_modified:
+                headers["If-Modified-Since"] = last_modified
+
+        proxy = self._settings.proxy_url.get_secret_value() if self._settings.proxy_url else None
+        started = time.perf_counter()
+        try:
+            async with curl_requests.AsyncSession() as session:
+                response = await session.get(
+                    target,
+                    headers=headers,
+                    impersonate=self._impersonation(),
+                    timeout=self._settings.request_timeout,
+                    proxies={"https": proxy, "http": proxy} if proxy else None,
+                    allow_redirects=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - jamais d'exception vers la boucle
+            return FetchResult(url=target, status_code=None, body="",
+                               elapsed=time.perf_counter() - started,
+                               error=f"{type(exc).__name__}: {exc}")
+
+        elapsed = time.perf_counter() - started
+        received = len(response.content or b"") + sum(
+            len(str(key)) + len(str(value)) + 4 for key, value in response.headers.items()
+        ) + 256
+
+        if response.status_code == 304:
+            return FetchResult(url=target, status_code=304, body="", elapsed=elapsed,
+                               bytes_downloaded=received, not_modified=True)
+
+        if self._settings.conditional_requests:
+            etag = response.headers.get("etag")
+            last_modified = response.headers.get("last-modified")
+            if etag or last_modified:
+                self._validators[url] = (etag, last_modified)
+
+        body = response.text
+        blocked = response.status_code in (401, 403, 406, 418, 429) or _looks_blocked(body)
+        error = None
+        if response.status_code >= 400:
+            error = f"HTTP {response.status_code}"
+        elif blocked:
+            error = "blocked by the site's bot protection"
+        return FetchResult(url=target, status_code=response.status_code, body=body,
+                           elapsed=elapsed, error=error, blocked=blocked,
+                           bytes_downloaded=received)
 
 
 def _exchange_bytes(response: httpx.Response) -> int:

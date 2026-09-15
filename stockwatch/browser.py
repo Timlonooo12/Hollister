@@ -78,6 +78,7 @@ async def fetch_session(
     locale: str = "fr-FR",
     timeout: float = 60.0,
     proxy: str | None = None,
+    headless: bool = True,
 ) -> BrowserSession:
     """Ouvre `url` dans Chromium et renvoie les cookies obtenus.
 
@@ -102,7 +103,7 @@ async def fetch_session(
     async with async_playwright() as playwright:
         try:
             browser = await playwright.chromium.launch(
-                headless=True,
+                headless=headless,
                 # Seule cette visite passe par le proxy : quelques centaines de
                 # kilo-octets toutes les trois heures, là où y faire transiter
                 # la surveillance entière coûterait des gigaoctets.

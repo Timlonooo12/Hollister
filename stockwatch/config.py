@@ -118,6 +118,11 @@ class StockWatchSettings(BaseSettings):
     extra_headers_raw: str = Field(default="", alias="STOCKWATCH_EXTRA_HEADERS")
     proxy_url: SecretStr | None = Field(default=None, alias="STOCKWATCH_PROXY_URL")
     http2: bool = Field(default=True, alias="STOCKWATCH_HTTP2")
+    # Imiter la signature TLS d'un vrai navigateur (nécessite curl_cffi).
+    # Les filtres anti-bot comparent cette empreinte à celle des navigateurs
+    # connus : une bibliothèque Python s'y reconnaît au premier coup d'œil.
+    # Valeurs utiles : safari17_0, safari18_0, chrome124, chrome131, firefox133.
+    impersonate: str = Field(default="", alias="STOCKWATCH_IMPERSONATE")
     cache_buster: bool = Field(default=False, alias="STOCKWATCH_CACHE_BUSTER")
     # Renvoyer l'ETag / Last-Modified du dernier corps reçu : le serveur répond
     # alors « 304 Not Modified » tant que la page n'a pas bougé, ce qui divise
@@ -139,6 +144,9 @@ class StockWatchSettings(BaseSettings):
     # Proxy réservé à la visite du navigateur. Utile quand l'adresse du serveur
     # est refusée mais qu'on ne veut pas y faire passer toute la surveillance.
     browser_proxy_url: SecretStr | None = Field(default=None, alias="STOCKWATCH_BROWSER_PROXY_URL")
+    # Un navigateur visible est moins repéré qu'un navigateur headless, au prix
+    # d'un écran (ou d'un Xvfb) sur la machine qui l'ouvre.
+    browser_headless: bool = Field(default=True, alias="STOCKWATCH_BROWSER_HEADLESS")
     # Fichier déposé par une machine tierce (ton ordinateur, par exemple) :
     # le bot le relit dès qu'il change, sans redémarrage.
     cookie_file: Path = Field(default=Path("cookie.txt"), alias="STOCKWATCH_COOKIE_FILE")
