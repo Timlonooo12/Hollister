@@ -3,7 +3,7 @@ clic droit, sans passer par le presse-papier et les pièges de quoting du shell.
 
 from __future__ import annotations
 
-from stockwatch.cookie import extract_cookie, mask, write_env
+from stockwatch.cookie import extract_cookie, extract_headers, mask, unescape, write_env
 
 CURL = """curl 'https://www.hollisterco.com/shop/eu-fr/p/icon-henley-63586319-2' \\
   -X 'GET' \\
@@ -36,6 +36,40 @@ class TestExtraction:
         assert extract_cookie("bonjour") is None
         assert extract_cookie("") is None
         assert extract_cookie("curl 'https://example.test' -H 'Accept: text/html'") is None
+
+
+class TestSafariExport:
+    """Safari exporte `-H $'Cookie: …'` dès qu'une valeur contient une
+    apostrophe ou un accent. S'arrêter à la première apostrophe tronquerait le
+    cookie au premier « women's » venu."""
+
+    SAFARI = (
+        "curl 'https://www.hollisterco.com/shop/eu-fr/p/icon-henley-63586319-2' \\\n"
+        "-X 'GET' \\\n"
+        "-H $'Cookie: a=1; page=hol:pdp:women\\'s:tops; nom=caf\\xc3\\xa9 cr\\xc3\\xa8me; last=9' \\\n"
+        "-H 'User-Agent: Mozilla/5.0 (Macintosh) Version/26.1 Safari/605.1.15' \\\n"
+        "-H 'Accept-Language: fr-FR,fr;q=0.9'"
+    )
+
+    def test_the_cookie_is_not_truncated_at_an_escaped_quote(self):
+        cookie = extract_cookie(self.SAFARI)
+        assert cookie.endswith("last=9")
+        assert "women's" in cookie
+        assert len([chunk for chunk in cookie.split(";") if "=" in chunk]) == 4
+
+    def test_accented_bytes_are_decoded(self):
+        assert "café crème" in extract_cookie(self.SAFARI)
+
+    def test_the_browser_identity_comes_along(self):
+        headers = extract_headers(self.SAFARI)
+        assert "Safari/605.1.15" in headers["user-agent"]
+        assert headers["accept-language"] == "fr-FR,fr;q=0.9"
+
+    def test_unescape_handles_the_usual_suspects(self):
+        assert unescape(r"a\'b") == "a'b"
+        assert unescape(r"caf\xc3\xa9") == "café"
+        assert unescape(r"a\\b") == "a\\b"
+        assert unescape("sans echappement") == "sans echappement"
 
 
 class TestEnvFile:
