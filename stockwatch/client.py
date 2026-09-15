@@ -40,10 +40,20 @@ class FetchResult:
     elapsed: float
     error: str | None = None
     blocked: bool = False
+    # Octets facturables de l'échange : corps compressé + en-têtes des deux
+    # sens. httpx ne compte que le corps, or un « 304 » n'en a pas — sans les
+    # en-têtes, un budget se croirait à zéro. Estimation volontairement haute
+    # (HTTP/2 compresse les en-têtes répétés).
+    bytes_downloaded: int = 0
+    not_modified: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.error is None and self.status_code is not None and 200 <= self.status_code < 300 and not self.blocked
+        if self.error is not None or self.blocked:
+            return False
+        if self.not_modified:
+            return True
+        return self.status_code is not None and 200 <= self.status_code < 300
 
 
 class ProductClient:
@@ -52,6 +62,10 @@ class ProductClient:
     def __init__(self, settings: StockWatchSettings) -> None:
         self._settings = settings
         self._client: httpx.AsyncClient | None = None
+        # ETag / Last-Modified du dernier corps reçu, par URL. Les renvoyer
+        # permet au serveur de répondre « 304 Not Modified » — quelques
+        # centaines d'octets au lieu de la page entière.
+        self._validators: dict[str, tuple[str | None, str | None]] = {}
 
     def _headers(self) -> dict[str, str]:
         # A full desktop-Chrome header set, client hints included. Bot filters
@@ -130,9 +144,17 @@ class ProductClient:
             separator = "&" if "?" in target else "?"
             target = f"{target}{separator}_={int(time.time() * 1000)}"
 
+        conditional: dict[str, str] = {}
+        if self._settings.conditional_requests:
+            etag, last_modified = self._validators.get(url, (None, None))
+            if etag:
+                conditional["If-None-Match"] = etag
+            if last_modified:
+                conditional["If-Modified-Since"] = last_modified
+
         started = time.perf_counter()
         try:
-            response = await self._client.get(target)
+            response = await self._client.get(target, headers=conditional or None)
         except httpx.HTTPError as exc:
             return FetchResult(
                 url=target,
@@ -142,6 +164,24 @@ class ProductClient:
                 error=f"{type(exc).__name__}: {exc}",
             )
         elapsed = time.perf_counter() - started
+        received = _exchange_bytes(response)
+
+        if response.status_code == 304:
+            return FetchResult(
+                url=target,
+                status_code=304,
+                body="",
+                elapsed=elapsed,
+                bytes_downloaded=received,
+                not_modified=True,
+            )
+
+        if self._settings.conditional_requests:
+            etag = response.headers.get("etag")
+            last_modified = response.headers.get("last-modified")
+            if etag or last_modified:
+                self._validators[url] = (etag, last_modified)
+
         body = response.text
         blocked = response.status_code in (401, 403, 406, 429) or _looks_blocked(body)
         error = None
@@ -156,7 +196,19 @@ class ProductClient:
             elapsed=elapsed,
             error=error,
             blocked=blocked,
+            bytes_downloaded=received,
         )
+
+
+def _exchange_bytes(response: httpx.Response) -> int:
+    """Taille approximative de l'échange, en-têtes des deux sens compris."""
+    def header_size(headers: object) -> int:
+        return sum(len(str(key)) + len(str(value)) + 4 for key, value in headers.items())  # type: ignore[attr-defined]
+
+    request = response.request
+    sent = header_size(request.headers) + len(str(request.url)) + 16
+    received = response.num_bytes_downloaded + header_size(response.headers) + 16
+    return sent + received
 
 
 def _looks_blocked(body: str) -> bool:

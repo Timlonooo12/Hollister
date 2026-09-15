@@ -33,12 +33,26 @@ async def diagnose(
         client = ProductClient(settings)
         try:
             result = await client.fetch(target)
+            # Deuxième requête immédiate : dit si le serveur accepte les
+            # requêtes conditionnelles, donc ce que le bot consommera vraiment.
+            second = await client.fetch(target) if result.ok else None
         finally:
             await client.aclose()
         body = result.body
         print(f"Source      : {result.url}")
         print(f"HTTP        : {result.status_code}  en {result.elapsed * 1000:.0f} ms  "
-              f"({len(body)} caractères)")
+              f"({len(body)} caractères, {_human(result.bytes_downloaded)} sur le réseau)")
+        if second is not None:
+            if second.not_modified:
+                print(f"2e requête  : 304 non modifié — {_human(second.bytes_downloaded)} seulement ✅")
+                per_day = second.bytes_downloaded * 86400 / max(0.2, settings.poll_interval)
+                print(f"              soit ~{_human(int(per_day))}/jour à {settings.poll_interval:g} s "
+                      "tant que la page ne change pas")
+            else:
+                print(f"2e requête  : HTTP {second.status_code} — {_human(second.bytes_downloaded)} "
+                      "(pas de 304 : le serveur renvoie la page entière)")
+                per_day = second.bytes_downloaded * 86400 / max(0.2, settings.poll_interval)
+                print(f"              soit ~{_human(int(per_day))}/jour à {settings.poll_interval:g} s")
         if result.blocked:
             print("⚠️  La réponse ressemble à une page de blocage (Akamai / captcha).")
         if result.error:
@@ -107,6 +121,15 @@ async def diagnose(
         print()
         print(f"⚠️  Tailles surveillées absentes de la page : {', '.join(missing)}")
     return 0
+
+
+def _human(count: int) -> str:
+    value = float(count)
+    for unit in ("o", "Ko", "Mo", "Go"):
+        if value < 1024 or unit == "Go":
+            return f"{value:.0f} {unit}" if unit == "o" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} Go"
 
 
 def _group_by_owner(parsed: ParseResult) -> dict[str, dict[str, bool]]:

@@ -103,6 +103,17 @@ class StockWatchSettings(BaseSettings):
     proxy_url: SecretStr | None = Field(default=None, alias="STOCKWATCH_PROXY_URL")
     http2: bool = Field(default=True, alias="STOCKWATCH_HTTP2")
     cache_buster: bool = Field(default=False, alias="STOCKWATCH_CACHE_BUSTER")
+    # Renvoyer l'ETag / Last-Modified du dernier corps reçu : le serveur répond
+    # alors « 304 Not Modified » tant que la page n'a pas bougé, ce qui divise
+    # la bande passante par plusieurs centaines. Incompatible avec le
+    # cache-buster, qui force une URL neuve à chaque requête.
+    conditional_requests: bool = Field(default=True, alias="STOCKWATCH_CONDITIONAL_REQUESTS")
+    # Plafond de téléchargement par jour, en Mo (0 = illimité). Au-delà, le bot
+    # ralentit tout seul plutôt que de faire exploser la facture d'un proxy
+    # facturé au gigaoctet.
+    daily_budget_mb: float = Field(default=0.0, alias="STOCKWATCH_DAILY_BUDGET_MB")
+    # Intervalle appliqué une fois le budget atteint.
+    throttled_interval: float = Field(default=300.0, alias="STOCKWATCH_THROTTLED_INTERVAL")
     html_fallback: bool = Field(default=True, alias="STOCKWATCH_HTML_FALLBACK")
 
     # --- Persistence ---

@@ -64,7 +64,15 @@ class StateStore:
         self.subscribers: set[int] = set()
         self.sizes: dict[str, SizeState] = {}
         self.overrides: dict[str, Any] = {}
-        self.stats: dict[str, Any] = {"checks": 0, "alerts": 0, "errors": 0}
+        self.stats: dict[str, Any] = {
+            "checks": 0,
+            "alerts": 0,
+            "errors": 0,
+            "not_modified": 0,
+            "bytes_total": 0,
+            "bytes_today": 0,
+            "bytes_day": "",
+        }
 
     # -- load / save -------------------------------------------------------
     def load(self) -> None:
@@ -156,6 +164,20 @@ class StateStore:
 
     def bump(self, counter: str, amount: int = 1) -> None:
         self.stats[counter] = int(self.stats.get(counter, 0)) + amount
+
+    def add_bytes(self, count: int) -> int:
+        """Compte les octets reçus et renvoie le total du jour.
+
+        Le compteur journalier repart à zéro au changement de date UTC, ce qui
+        permet d'asseoir un budget quotidien sur un proxy facturé au volume.
+        """
+        today = utcnow().strftime("%Y-%m-%d")
+        if self.stats.get("bytes_day") != today:
+            self.stats["bytes_day"] = today
+            self.stats["bytes_today"] = 0
+        self.stats["bytes_today"] = int(self.stats.get("bytes_today", 0)) + max(0, count)
+        self.stats["bytes_total"] = int(self.stats.get("bytes_total", 0)) + max(0, count)
+        return self.stats["bytes_today"]
 
 
 def apply_overrides(config: Any, overrides: dict[str, Any]) -> None:

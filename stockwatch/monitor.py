@@ -36,6 +36,8 @@ class Tick:
     sizes: dict[str, bool] = field(default_factory=dict)
     newly_available: list[str] = field(default_factory=list)
     error: str | None = None
+    bytes_downloaded: int = 0
+    not_modified: bool = False
 
     def watched_summary(self, watched: list[str]) -> str:
         parts = []
@@ -69,15 +71,38 @@ class Monitor:
         self.last_error: str | None = None
         self._degraded_notified = False
         self._pending: set[asyncio.Task[object]] = set()
+        self._last_sizes: dict[str, bool] = {}
+        self._budget_notified = False
 
     # -- one probe ---------------------------------------------------------
     async def check_once(self) -> Tick:
         url = self.settings.api_url or self.config.product_url
         result = await self.client.fetch(url)
         self.state.bump("checks")
+        if result.bytes_downloaded:
+            self.state.add_bytes(result.bytes_downloaded)
 
         if not result.ok:
             return self._record_failure(result, result.error or "unknown error")
+
+        if result.not_modified:
+            # Le serveur confirme que la page n'a pas bougé d'un octet : rien
+            # n'a pu changer côté stock, inutile de re-télécharger ni d'analyser.
+            self._recover()
+            self.state.bump("not_modified")
+            tick = Tick(
+                at=utcnow(),
+                ok=True,
+                elapsed=result.elapsed,
+                status_code=304,
+                strategy="304-non-modifie",
+                sizes=dict(self._last_sizes),
+                bytes_downloaded=result.bytes_downloaded,
+                not_modified=True,
+            )
+            self.last_tick = tick
+            self.last_ok_at = tick.at
+            return tick
 
         parsed = parse_availability(
             result.body,
@@ -115,6 +140,7 @@ class Monitor:
 
         self._recover()
         newly_available = self._diff(parsed)
+        self._last_sizes = dict(parsed.sizes)
         tick = Tick(
             at=utcnow(),
             ok=True,
@@ -123,6 +149,7 @@ class Monitor:
             strategy=parsed.strategy,
             sizes=dict(parsed.sizes),
             newly_available=newly_available,
+            bytes_downloaded=result.bytes_downloaded,
         )
         self.last_tick = tick
         self.last_ok_at = tick.at
@@ -259,13 +286,40 @@ class Monitor:
         await self._drain()
 
     def _next_delay(self, elapsed: float) -> float:
-        """Keep a steady cadence, but back off exponentially while failing."""
+        """Keep a steady cadence, but back off while failing or over budget."""
         if self.config.paused:
             return max(1.0, self.config.poll_interval)
         if self.consecutive_errors:
             penalty = self.config.poll_interval * (2 ** min(self.consecutive_errors, 8))
             return min(self.settings.max_backoff, max(self.config.poll_interval, penalty))
+        if self.over_budget():
+            self._warn_budget_once()
+            return max(self.config.poll_interval, self.settings.throttled_interval)
         return max(0.0, self.config.poll_interval - elapsed)
+
+    # -- bande passante ----------------------------------------------------
+    def bytes_today(self) -> int:
+        return int(self.state.stats.get("bytes_today", 0))
+
+    def over_budget(self) -> bool:
+        budget = self.settings.daily_budget_mb
+        return budget > 0 and self.bytes_today() >= budget * 1_000_000
+
+    def _warn_budget_once(self) -> None:
+        if self._budget_notified:
+            return
+        self._budget_notified = True
+        self._spawn(
+            self.notifier.broadcast(
+                "🐢 <b>Budget de données atteint</b>\n"
+                f"{_human_bytes(self.bytes_today())} téléchargés aujourd'hui "
+                f"(plafond : {self.settings.daily_budget_mb:g} Mo).\n"
+                f"Je ralentis à une vérification toutes les "
+                f"{self.settings.throttled_interval:g} s jusqu'à minuit UTC "
+                "plutôt que de faire grimper la facture.",
+                silent=True,
+            )
+        )
 
     # -- housekeeping ------------------------------------------------------
     def _spawn(self, coro) -> None:
@@ -306,8 +360,27 @@ class Monitor:
                          f"({self.consecutive_errors} d'affilée)")
         if self.last_alert_at:
             lines.append(f"🚨 Dernière alerte : {self.last_alert_at.astimezone().strftime('%d/%m %H:%M:%S')}")
+        checks = max(1, int(self.state.stats.get("checks", 0)))
+        unchanged = int(self.state.stats.get("not_modified", 0))
+        today = self.bytes_today()
+        lines.append(
+            f"📡 Données : {_human_bytes(today)} aujourd'hui "
+            f"(≈ {_human_bytes(today * 30)}/mois) • {unchanged * 100 // checks} % de réponses « inchangé »"
+        )
+        if self.settings.daily_budget_mb > 0:
+            state = "⚠️ atteint, cadence réduite" if self.over_budget() else "ok"
+            lines.append(f"🎚 Budget : {self.settings.daily_budget_mb:g} Mo/jour ({state})")
         lines.append(f"👥 Abonnés : {len(self.notifier.recipients())}")
         return lines
+
+
+def _human_bytes(count: int) -> str:
+    value = float(count)
+    for unit in ("o", "Ko", "Mo", "Go"):
+        if value < 1024 or unit == "Go":
+            return f"{value:.0f} {unit}" if unit == "o" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} Go"
 
 
 def _humanize(delta: timedelta) -> str:

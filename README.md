@@ -267,6 +267,8 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_ALERT_ON_FIRST_SEEN` | `true` | Alerter si déjà dispo au démarrage |
 | `STOCKWATCH_REPEAT_ALERT_MINUTES` | `0` | Rappel tant que c'est dispo (0 = aucun) |
 | `STOCKWATCH_COOKIE` / `STOCKWATCH_PROXY_URL` | vide | Contournement d'un blocage |
+| `STOCKWATCH_CONDITIONAL_REQUESTS` | `true` | ETag : ne retélécharge la page que si elle a changé |
+| `STOCKWATCH_DAILY_BUDGET_MB` | `0` | Plafond de données par jour (0 = illimité) |
 | `STOCKWATCH_STATE_FILE` | `stockwatch-state.json` | Mémoire du stock et des abonnés |
 
 Le token, le cookie et le proxy sont chargés dans des `SecretStr` : ils
@@ -331,14 +333,43 @@ règle de façon fiable. Par ordre de coût :
    suffisant, mais le cookie est lié à l'empreinte du navigateur et à son IP,
    donc il expire vite. Dépannage, pas solution.
 
-### Coût réel d'une vérification par seconde
+### Consommation de données
 
-Une fiche produit pèse ~670 Ko (~150 Ko compressés sur le réseau) et sa lecture
-coûte ~0,2 s de CPU. À une vérification par seconde, cela fait donc environ
-**20 % d'un cœur en continu et ~10 Go de trafic par jour**. Sur un petit VPS,
-`STOCKWATCH_POLL_INTERVAL=3` divise les deux par trois — et ne coûte presque
-rien en réactivité, le CDN du marchand ne rafraîchissant pas sa réponse à la
-milliseconde.
+Le bot ne retélécharge pas la page tant qu'elle n'a pas changé : il renvoie
+l'`ETag` de la dernière réponse et le serveur répond « 304 Not Modified ».
+Brotli est négocié quand le serveur le propose. Mesuré sur une page de 750 Ko
+(comptage en-têtes compris, dans les deux sens) :
+
+| | par vérification | à 1 s | à 30 s |
+|---|---|---|---|
+| page entière à chaque fois | 353 Ko | 29 Go/jour | 1 Go/jour |
+| requête conditionnelle *(défaut)* | **878 o** | **72 Mo/jour** | 2,4 Mo/jour |
+
+Soit **411 fois moins de données**, sans rien perdre en réactivité : un 304
+coûte un aller-retour d'en-têtes, et dès que la page bouge le corps complet
+arrive normalement. `python -m stockwatch diagnose` refait la requête une
+seconde fois et affiche ce que le site répond vraiment — c'est la seule façon
+de savoir si un marchand donné honore les requêtes conditionnelles.
+
+Si ce n'est pas le cas chez lui, il reste l'intervalle (`STOCKWATCH_POLL_INTERVAL`)
+et, derrière un proxy facturé au volume, le garde-fou :
+
+```bash
+STOCKWATCH_DAILY_BUDGET_MB=500      # au-delà, le bot ralentit tout seul
+STOCKWATCH_THROTTLED_INTERVAL=300   # et prévient une fois sur Telegram
+```
+
+`/status` affiche en permanence le volume du jour, la projection mensuelle et
+le pourcentage de réponses « inchangé ».
+
+### Coût CPU d'une vérification par seconde
+
+Analyser une fiche de 670 Ko coûte ~0,2 s de CPU, soit **~20 % d'un cœur** à
+une vérification par seconde. Les réponses « 304 » n'étant pas ré-analysées,
+ce coût ne se paie en pratique que lorsque la page change réellement. Sur un
+petit VPS partagé avec un autre service, `STOCKWATCH_POLL_INTERVAL=3` le divise
+par trois sans perte notable — le CDN du marchand ne rafraîchit pas sa réponse
+à la milliseconde.
 
 **Docker** :
 
@@ -390,7 +421,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 81 tests
+python -m pytest -q        # 92 tests
 python -m ruff check .
 ```
 
@@ -407,7 +438,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 81 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 92 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il
