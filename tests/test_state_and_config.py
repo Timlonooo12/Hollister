@@ -192,3 +192,15 @@ class TestProductId:
         config = WatchConfig.from_settings(settings)
         apply_overrides(config, reloaded.overrides)
         assert config.effective_product_id() == "63503980"
+
+
+class TestApiUrl:
+    def test_a_placeholder_is_ignored_instead_of_breaking_every_check(self):
+        s = StockWatchSettings(_env_file=None, STOCKWATCH_BOT_TOKEN="1:x",
+                               STOCKWATCH_API_URL="<l'url affichée>")
+        assert s.api_url == ""
+
+    def test_a_real_url_is_kept(self):
+        s = StockWatchSettings(_env_file=None, STOCKWATCH_BOT_TOKEN="1:x",
+                               STOCKWATCH_API_URL="https://example.test/api/p/1")
+        assert s.api_url == "https://example.test/api/p/1"

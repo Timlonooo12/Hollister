@@ -172,6 +172,20 @@ class StockWatchSettings(BaseSettings):
             raise ValueError("STOCKWATCH_PRODUCT_URL must be an http(s) URL")
         return value
 
+    @field_validator("api_url")
+    @classmethod
+    def _ignore_bogus_api_url(cls, value: str) -> str:
+        """Un STOCKWATCH_API_URL qui n'est pas une URL est ignoré.
+
+        Une valeur de remplacement collée telle quelle (« <ton url> ») ferait
+        échouer chaque vérification alors que la page, elle, reste lisible :
+        mieux vaut l'ignorer et continuer à surveiller.
+        """
+        value = value.strip()
+        if value and not value.startswith(("http://", "https://")):
+            return ""
+        return value
+
     @property
     def chat_ids(self) -> list[int]:
         ids: list[int] = []
