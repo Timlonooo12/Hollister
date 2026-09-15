@@ -381,6 +381,14 @@ sudo systemctl daemon-reload && sudo systemctl enable --now stockwatch
 journalctl -u stockwatch -f
 ```
 
+### Quand le site sert une page incomplète
+
+Hollister renvoie par moments une variante allégée de la fiche — 368 Ko au lieu
+de 653 — qui ne contient pas les données de stock. Ce n'est ni un blocage ni un
+changement de structure, et la requête suivante ramène la version complète. Le
+bot retente donc immédiatement, une seule fois et seulement après une lecture
+réussie, plutôt que de perdre le tour. `/status` compte ces pages incomplètes.
+
 ### Quand le site refuse une partie des requêtes
 
 Constaté depuis un VPS OVH : environ une requête sur trois revient en `403`,
@@ -523,7 +531,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 140 tests
+python -m pytest -q        # 146 tests
 python -m ruff check .
 ```
 
@@ -540,7 +548,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 140 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 146 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

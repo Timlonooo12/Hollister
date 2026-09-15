@@ -110,12 +110,29 @@ class Monitor:
             self.last_ok_at = tick.at
             return tick
 
-        parsed = parse_availability(
-            result.body,
-            product_id=self.config.effective_product_id(),
-            product_color=self.config.product_color or None,
-            html_fallback=self.settings.html_fallback,
-        )
+        parsed = self._parse(result)
+
+        # Le site sert parfois une variante allégée de la page, sans les données
+        # de stock. Ce n'est ni un blocage ni un changement de structure : la
+        # requête suivante ramène en général la version complète. On la tente
+        # tout de suite plutôt que de perdre le tour — une seule fois, et
+        # seulement après une lecture réussie, pour ne pas doubler le trafic
+        # quand le site est réellement en panne.
+        if not parsed.found and self._typical_body and self.consecutive_errors == 0:
+            retry = await self.client.fetch(url)
+            self.state.bump("checks")
+            if retry.bytes_downloaded:
+                self.state.add_bytes(retry.bytes_downloaded)
+            if retry.ok and not retry.not_modified:
+                retried = self._parse(retry)
+                if retried.found:
+                    logger.info(
+                        "Page incomplète (%s Ko) ignorée, la seconde tentative a réussi (%s Ko)",
+                        len(result.body) // 1024, len(retry.body) // 1024,
+                    )
+                    result, parsed = retry, retried
+                    self.state.bump("partial_pages")
+
         if not parsed.found:
             # « Anormalement courte » se juge par rapport aux pages déjà lues,
             # pas dans l'absolu : une réponse cinq fois plus petite que d'habitude
@@ -149,10 +166,16 @@ class Monitor:
                     "et renseigne STOCKWATCH_API_URL avec l'endpoint trouvé"
                 )
             else:
+                size = len(result.body) // 1024
                 message = (
-                    f"page récupérée (HTTP {result.status_code}, {len(result.body) // 1024} Ko) "
-                    "mais aucune taille lisible — lance `python -m stockwatch diagnose`"
+                    f"page récupérée (HTTP {result.status_code}, {size} Ko) mais aucune taille "
+                    "lisible — lance `python -m stockwatch diagnose`"
                 )
+                if self._typical_body and len(result.body) < self._typical_body * 0.8:
+                    message += (
+                        f" (page habituellement de {self._typical_body // 1024} Ko : le site a "
+                        "servi une version allégée, sans les données de stock)"
+                    )
             return self._record_failure(result, message, strategy=parsed.strategy)
 
         watched = list(self.config.sizes)
@@ -186,6 +209,14 @@ class Monitor:
         if newly_available:
             self._spawn(self._alert(newly_available, parsed, tick))
         return tick
+
+    def _parse(self, result: FetchResult) -> ParseResult:
+        return parse_availability(
+            result.body,
+            product_id=self.config.effective_product_id(),
+            product_color=self.config.product_color or None,
+            html_fallback=self.settings.html_fallback,
+        )
 
     def _diff(self, parsed: ParseResult) -> list[str]:
         """Update the persisted state and return the sizes to alert on."""
@@ -452,6 +483,9 @@ class Monitor:
             lines.append(f"🚨 Dernière alerte : {self.last_alert_at.astimezone().strftime('%d/%m %H:%M:%S')}")
         checks = max(1, int(self.state.stats.get("checks", 0)))
         unchanged = int(self.state.stats.get("not_modified", 0))
+        partial = int(self.state.stats.get("partial_pages", 0))
+        if partial:
+            lines.append(f"🧩 Pages incomplètes rattrapées : {partial}")
         blocked = int(self.state.stats.get("blocked", 0))
         if blocked:
             lines.append(

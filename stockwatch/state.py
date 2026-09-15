@@ -70,6 +70,7 @@ class StateStore:
             "errors": 0,
             "not_modified": 0,
             "blocked": 0,
+            "partial_pages": 0,
             "bytes_total": 0,
             "bytes_today": 0,
             "bytes_day": "",

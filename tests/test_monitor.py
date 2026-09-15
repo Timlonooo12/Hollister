@@ -321,3 +321,43 @@ class TestFailureMessages:
         tick = await monitor.check_once()
         assert "Blanc" in (tick.error or "")
         assert "Vert sauge" in (tick.error or "") and "Marine" in (tick.error or "")
+
+
+class TestIncompletePages:
+    """Le site sert parfois une variante allégée, sans les données de stock :
+    perdre le tour pour ça, c'est rater un réassort pour rien."""
+
+    async def test_a_second_attempt_is_made_and_succeeds(self, settings, config, state, fake_notifier):
+        complete = page(XS=False, S=False) + " " * 200_000
+        light = "<html>version allégée, sans stock</html>"
+        client = FakeClient([complete, light, complete])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+
+        await monitor.check_once()                    # apprend la page complète
+        tick = await monitor.check_once()             # allégée, puis nouvelle tentative
+        await drain(monitor)
+
+        assert tick.ok is True
+        assert tick.sizes == {"XS": False, "S": False}
+        assert len(client.calls) == 3
+        assert state.stats["partial_pages"] == 1
+
+    async def test_the_retry_happens_only_once(self, settings, config, state, fake_notifier):
+        complete = page(XS=False, S=False) + " " * 200_000
+        client = FakeClient([complete, "<html>vide</html>"])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+
+        await monitor.check_once()
+        before = len(client.calls)
+        await monitor.check_once()                    # échec + une seule reprise
+        assert len(client.calls) == before + 2
+        await monitor.check_once()                    # déjà en échec : pas de reprise
+        assert len(client.calls) == before + 3
+
+    async def test_the_message_names_the_lighter_page(self, settings, config, state, fake_notifier):
+        complete = page(XS=False) + " " * 400_000
+        light = "<html>" + "x" * 1000 + "</html>"
+        monitor = Monitor(settings, config, FakeClient([complete, light]), fake_notifier, state)
+        await monitor.check_once()
+        tick = await monitor.check_once()
+        assert "allégée" in (tick.error or "") or "contrôle" in (tick.error or "")
