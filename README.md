@@ -358,6 +358,29 @@ règle de façon fiable. Par ordre de coût :
    suffisant, mais le cookie est lié à l'empreinte du navigateur et à son IP,
    donc il expire vite. Dépannage, pas solution.
 
+### Trouver une source plus légère que la page
+
+```bash
+python -m stockwatch probe
+```
+
+La page pèse ~350 Ko compressés ; l'appel JSON que fait le navigateur pour
+afficher les mêmes tailles en pèse dix à vingt fois moins. `probe` récupère la
+page, en extrait toutes les URL qui ressemblent à une API, les essaie une par
+une, garde celles qui renvoient réellement des tailles et affiche la plus
+légère avec la ligne à coller :
+
+```
+🏆 Le plus léger qui lit le stock : 14,2 Ko contre 352,8 Ko pour la page — 25× moins.
+   https://www.hollisterco.com/api/…
+À coller dans .env :
+   STOCKWATCH_API_URL=https://www.hollisterco.com/api/…
+```
+
+Vérifie ensuite avec `diagnose` que les tailles correspondent à la fiche avant
+de compter dessus. Si rien n'est trouvé, la page reste la seule source et il ne
+reste que l'intervalle comme levier.
+
 ### Consommation de données
 
 Le bot ne retélécharge pas la page tant qu'elle n'a pas changé : il renvoie
@@ -449,7 +472,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 102 tests
+python -m pytest -q        # 108 tests
 python -m ruff check .
 ```
 
@@ -466,7 +489,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 102 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 108 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

@@ -17,6 +17,7 @@ from . import __version__
 from .app import StartupError, configure_logging, run
 from .config import load_settings
 from .diagnose import run_diagnose
+from .probe import run_probe
 
 _TOKEN_HELP = (
     "❌ Configuration incomplète : STOCKWATCH_BOT_TOKEN est obligatoire.\n"
@@ -37,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose.add_argument("--url", help="URL à analyser (défaut : le produit configuré)")
     diagnose.add_argument("--file", help="Analyser un fichier HTML/JSON déjà téléchargé")
     diagnose.add_argument("--save", help="Enregistrer la réponse brute dans ce fichier")
+    probe = sub.add_parser("probe", help="Chercher un endpoint plus léger que la page HTML")
+    probe.add_argument("--url", help="Page à analyser (défaut : le produit configuré)")
     return parser
 
 
@@ -50,6 +53,14 @@ def main(argv: list[str] | None = None) -> int:
             return run_diagnose(settings, url=args.url, file=args.file, save=args.save)
         except BrokenPipeError:
             # `... | head` ferme le tuyau : ce n'est pas une erreur du diagnostic.
+            return 0
+
+    if args.command == "probe":
+        settings = load_settings(allow_missing_token=True)
+        configure_logging(settings.log_level)
+        try:
+            return run_probe(settings, url=args.url)
+        except BrokenPipeError:
             return 0
 
     try:
