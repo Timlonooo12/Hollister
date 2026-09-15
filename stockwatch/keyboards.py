@@ -104,6 +104,12 @@ def back_only() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[BACK]])
 
 
+def cookie_alert() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🍪 Renouveler le cookie", callback_data="nav:cookie"),
+    ]])
+
+
 def alert(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🛒 Commander maintenant", url=url),

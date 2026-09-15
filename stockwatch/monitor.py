@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from . import keyboards
 from .browser import BrowserUnavailable, fetch_session
 from .client import FetchResult, ProductClient
 from .config import StockWatchSettings, WatchConfig
@@ -80,6 +81,7 @@ class Monitor:
         self._browser_missing_notified = False
         self.last_cookie_error: str | None = None
         self._cookie_file_seen: float = 0.0
+        self._cookie_expiry_notified = False
         self._last_sizes: dict[str, bool] = {}
         self._last_labels: dict[str, str] = {}
         self._budget_notified = False
@@ -293,6 +295,12 @@ class Monitor:
         self.last_tick = tick
         logger.warning("Check failed (%s in a row): %s", self.consecutive_errors, message)
 
+        # Un refus isolé n'est pas une expiration : on attend la fenêtre de
+        # tolérance, celle-là même qui absorbe les refus intermittents.
+        if self.consecutive_errors >= max(2, self.settings.failure_grace) and \
+                self._looks_like_an_expired_cookie(result):
+            self._warn_cookie_expired()
+
         threshold = max(1, self.settings.error_alert_after)
         if self.consecutive_errors >= threshold and not self._degraded_notified:
             self._degraded_notified = True
@@ -309,6 +317,42 @@ class Monitor:
             )
         return tick
 
+    # -- cookie expiré -----------------------------------------------------
+    def _has_cookie(self) -> bool:
+        return bool(self.settings.cookie or self.state.session.get("cookie"))
+
+    def _looks_like_an_expired_cookie(self, result: FetchResult) -> bool:
+        """La signature d'une session qui n'est plus reconnue.
+
+        Le site ne dit jamais « ton cookie a expiré » : il refuse la requête, ou
+        sert une version amputée de la page. Les deux signifient la même chose
+        quand une session était en place.
+        """
+        if not self._has_cookie():
+            return False
+        if result.blocked or result.status_code in (401, 403, 418, 429):
+            return True
+        return bool(self._typical_body and 0 < len(result.body) < self._typical_body * 0.8)
+
+    def _warn_cookie_expired(self) -> None:
+        if self._cookie_expiry_notified:
+            return
+        self._cookie_expiry_notified = True
+        age = self.state.session_age_minutes()
+        since = f" (obtenu il y a {_humanize(timedelta(minutes=age))})" if age is not None else ""
+        self._spawn(
+            self.notifier.broadcast(
+                "🍪 <b>Cookie expiré</b>\n"
+                f"Le site ne reconnaît plus la session{since} : il refuse la requête ou "
+                "sert une page amputée, et je ne peux plus lire le stock.\n\n"
+                "<b>Aucune alerte ne partira tant qu'il n'est pas renouvelé.</b>\n\n"
+                "Appuie sur le bouton ci-dessous ; si le serveur ne peut pas en obtenir "
+                "lui-même, dépose-en un depuis ton ordinateur "
+                "(<code>bash deploy/mac-cookie-courier.sh</code>).",
+                markup=keyboards.cookie_alert(),
+            )
+        )
+
     def _recover(self) -> None:
         if self.consecutive_errors and self._degraded_notified:
             self._spawn(
@@ -320,6 +364,7 @@ class Monitor:
         self.consecutive_errors = 0
         self.last_error = None
         self._degraded_notified = False
+        self._cookie_expiry_notified = False
 
     # -- alerting ----------------------------------------------------------
     async def _alert(self, sizes: list[str], parsed: ParseResult, tick: Tick) -> None:

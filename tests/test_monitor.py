@@ -361,3 +361,82 @@ class TestIncompletePages:
         await monitor.check_once()
         tick = await monitor.check_once()
         assert "allégée" in (tick.error or "") or "contrôle" in (tick.error or "")
+
+
+class TestExpiredCookieAlert:
+    """Un cookie expiré arrête la surveillance sans bruit : le site refuse ou
+    sert une page amputée, mais ne dit jamais pourquoi."""
+
+    def _with_cookie(self, settings, tmp_path=None):
+        from stockwatch.config import StockWatchSettings
+
+        return StockWatchSettings(
+            _env_file=None, STOCKWATCH_BOT_TOKEN="1:x",
+            STOCKWATCH_PRODUCT_URL=settings.product_url,
+            STOCKWATCH_STATE_FILE=str(settings.state_file),
+            STOCKWATCH_COOKIE="ANFSession=abc",
+            STOCKWATCH_FAILURE_GRACE="3",
+        )
+
+    def _blocked(self, status=403):
+        return FetchResult(url="u", status_code=status, body="", elapsed=0.01,
+                           error=f"HTTP {status}", blocked=True)
+
+    async def test_repeated_refusals_name_the_cookie(self, settings, config, state, fake_notifier):
+        settings = self._with_cookie(settings)
+        monitor = Monitor(settings, config, FakeClient([self._blocked(418)]), fake_notifier, state)
+        for _ in range(4):
+            await monitor.check_once()
+        await drain(monitor)
+
+        alerts = [m for m in fake_notifier.messages if "Cookie expiré" in m]
+        assert len(alerts) == 1
+        assert "Aucune alerte ne partira" in alerts[0]
+
+    async def test_a_single_refusal_is_not_an_expiry(self, settings, config, state, fake_notifier):
+        settings = self._with_cookie(settings)
+        monitor = Monitor(settings, config, FakeClient([self._blocked()]), fake_notifier, state)
+        await monitor.check_once()
+        await drain(monitor)
+        assert not any("Cookie expiré" in m for m in fake_notifier.messages)
+
+    async def test_an_amputated_page_counts_as_an_expiry(self, settings, config, state, fake_notifier):
+        settings = self._with_cookie(settings)
+        complete = page(XS=False, S=False) + " " * 300_000
+        light = "<html>" + "x" * 1_000 + "</html>"
+        monitor = Monitor(settings, config, FakeClient([complete, light]), fake_notifier, state)
+        await monitor.check_once()
+        for _ in range(4):
+            await monitor.check_once()
+        await drain(monitor)
+        assert any("Cookie expiré" in m for m in fake_notifier.messages)
+
+    async def test_without_a_cookie_nothing_is_blamed_on_it(self, settings, config, state, fake_notifier):
+        monitor = Monitor(settings, config, FakeClient([self._blocked()]), fake_notifier, state)
+        for _ in range(4):
+            await monitor.check_once()
+        await drain(monitor)
+        assert not any("Cookie expiré" in m for m in fake_notifier.messages)
+
+    async def test_a_successful_read_re_arms_the_alert(self, settings, config, state, fake_notifier):
+        settings = self._with_cookie(settings)
+        bodies = [self._blocked(), self._blocked(), self._blocked(), self._blocked(),
+                  page(XS=False, S=False), self._blocked(), self._blocked(),
+                  self._blocked(), self._blocked()]
+        monitor = Monitor(settings, config, FakeClient(bodies), fake_notifier, state)
+        for _ in range(len(bodies)):
+            await monitor.check_once()
+        await drain(monitor)
+        assert len([m for m in fake_notifier.messages if "Cookie expiré" in m]) == 2
+
+    async def test_the_alert_carries_a_renewal_button(self, settings, config, state, fake_notifier):
+        settings = self._with_cookie(settings)
+        monitor = Monitor(settings, config, FakeClient([self._blocked(418)]), fake_notifier, state)
+        for _ in range(4):
+            await monitor.check_once()
+        await drain(monitor)
+
+        index = next(i for i, m in enumerate(fake_notifier.messages) if "Cookie expiré" in m)
+        markup = fake_notifier.markups[index]
+        labels = [button.text for row in markup.inline_keyboard for button in row]
+        assert any("Renouveler" in label for label in labels)

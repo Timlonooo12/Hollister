@@ -64,12 +64,15 @@ class FakeClient:
 class FakeNotifier:
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.markups: list[object] = []
 
     def recipients(self) -> list[int]:
         return [1]
 
-    async def broadcast(self, text: str, *, url: str | None = None, silent: bool = False) -> int:
+    async def broadcast(self, text: str, *, url: str | None = None, silent: bool = False,
+                        markup: object = None) -> int:
         self.messages.append(text)
+        self.markups.append(markup)
         return 1
 
 

@@ -329,6 +329,23 @@ python -m stockwatch cookie --auto     # en ligne de commande
 
 `/status` indique l'âge du cookie et le nombre de renouvellements.
 
+### Savoir qu'il a expiré
+
+Un site ne dit jamais « ton cookie a expiré » : il refuse la requête, ou sert
+une version amputée de la page. Le bot reconnaît les deux et envoie une alerte
+explicite, avec un bouton de renouvellement :
+
+```
+🍪 Cookie expiré
+Le site ne reconnaît plus la session (obtenue il y a 6 h) : il refuse la
+requête ou sert une page amputée, et je ne peux plus lire le stock.
+
+Aucune alerte ne partira tant qu'il n'est pas renouvelé.
+```
+
+Elle n'arrive qu'après plusieurs échecs consécutifs — un refus isolé est
+courant et se rattrape tout seul — et se réarme dès qu'une lecture réussit.
+
 ### Quand le serveur ne peut pas en obtenir
 
 Certains sites refusent toute nouvelle session venant d'une adresse de
@@ -618,7 +635,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 190 tests
+python -m pytest -q        # 195 tests
 python -m ruff check .
 ```
 
@@ -635,7 +652,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 190 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 195 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

@@ -34,12 +34,14 @@ class TelegramNotifier:
                 seen.append(chat_id)
         return seen
 
-    async def broadcast(self, text: str, *, url: str | None = None, silent: bool = False) -> int:
+    async def broadcast(self, text: str, *, url: str | None = None, silent: bool = False,
+                        markup: InlineKeyboardMarkup | None = None) -> int:
         targets = self.recipients()
         if not targets:
             logger.warning("Alert ready but nobody is subscribed — send /start to the bot.")
             return 0
-        markup = alert_keyboard(url) if url else None
+        if markup is None:
+            markup = alert_keyboard(url) if url else None
         results = await asyncio.gather(
             *(self._send(chat_id, text, markup, silent) for chat_id in targets),
             return_exceptions=True,
