@@ -297,7 +297,20 @@ chaque fois n'est pas tenable. Installe un navigateur headless, une fois :
 
 ```bash
 sudo /opt/stockwatch/.venv/bin/pip install playwright
-sudo /opt/stockwatch/.venv/bin/playwright install --with-deps chromium
+sudo /opt/stockwatch/.venv/bin/playwright install-deps chromium
+sudo PLAYWRIGHT_BROWSERS_PATH=/opt/stockwatch/browsers \
+     /opt/stockwatch/.venv/bin/playwright install chromium
+sudo chown -R stockwatch:stockwatch /opt/stockwatch
+```
+
+Le chemin explicite compte : installé avec `sudo` sans lui, Chromium atterrit
+dans le dossier personnel de `root`, tandis que le service le cherche dans
+celui de son propre utilisateur. L'unité systemd fournie pointe déjà sur
+`/opt/stockwatch/browsers`, donc recopie-la après mise à jour :
+
+```bash
+sudo cp /opt/stockwatch/deploy/stockwatch.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl restart stockwatch
 ```
 
 Le bot ouvre alors la page dans ce navigateur dès qu'une lecture échoue, et à

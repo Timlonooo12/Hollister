@@ -15,6 +15,11 @@ StartLimitIntervalSec=0
 Type=simple
 User=stockwatch
 WorkingDirectory=/opt/stockwatch
+# Où Playwright doit trouver Chromium. Sans ce chemin explicite, il le cherche
+# dans le dossier personnel de l'utilisateur du service (/opt/stockwatch/.cache)
+# alors que l'installation, faite avec sudo, l'a déposé dans celui de root.
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/stockwatch/browsers
+Environment=HOME=/opt/stockwatch
 # Pas d'EnvironmentFile : l'application lit elle-même /opt/stockwatch/.env, ce
 # qui évite les pièges de quoting de systemd sur le User-Agent et le libellé.
 ExecStart=/opt/stockwatch/.venv/bin/python -m stockwatch

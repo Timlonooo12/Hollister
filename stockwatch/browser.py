@@ -49,19 +49,33 @@ async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.
     except ImportError as exc:  # pragma: no cover - dépend de l'installation
         raise BrowserUnavailable(
             "Playwright n'est pas installé. Sur le serveur :\n"
-            "  sudo .venv/bin/pip install playwright\n"
-            "  sudo .venv/bin/playwright install --with-deps chromium"
+            "  sudo /opt/stockwatch/.venv/bin/pip install playwright\n"
+            "  sudo /opt/stockwatch/.venv/bin/playwright install-deps chromium\n"
+            "  sudo PLAYWRIGHT_BROWSERS_PATH=/opt/stockwatch/browsers "
+            "/opt/stockwatch/.venv/bin/playwright install chromium"
         ) from exc
 
     import asyncio
 
     async with async_playwright() as playwright:
         try:
-            browser = await playwright.chromium.launch(headless=True)
+            browser = await playwright.chromium.launch(
+                headless=True,
+                # Sur un serveur, le bac à sable de Chromium demande des
+                # privilèges que le service n'a volontairement pas, et /dev/shm
+                # y est trop petit. Le navigateur ne visite qu'une URL connue,
+                # celle que l'on surveille déjà.
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
         except Exception as exc:  # pragma: no cover - dépend de l'installation
+            detail = str(exc).splitlines()[0]
             raise BrowserUnavailable(
-                f"Chromium n'a pas pu démarrer ({exc}). Installe-le avec :\n"
-                "  sudo .venv/bin/playwright install --with-deps chromium"
+                f"Chromium n'a pas pu démarrer ({detail}).\n"
+                "Le plus souvent, il a été téléchargé dans le dossier de root alors que le "
+                "service tourne sous un autre utilisateur. Installe-le à un endroit partagé :\n"
+                "  sudo PLAYWRIGHT_BROWSERS_PATH=/opt/stockwatch/browsers "
+                "/opt/stockwatch/.venv/bin/playwright install chromium\n"
+                "  sudo chown -R stockwatch:stockwatch /opt/stockwatch/browsers"
             ) from exc
 
         try:
