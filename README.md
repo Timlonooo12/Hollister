@@ -354,15 +354,30 @@ quel que soit son déguisement. Le cookie doit alors être créé ailleurs. Deux
 montages, au choix :
 
 **Une machine de confiance le dépose.** `deploy/mac-cookie-courier.sh` obtient
-un cookie depuis ton ordinateur et le copie sur le serveur par SSH ; le bot
-relit le fichier dès qu'il change, sans redémarrage. Avec le LaunchAgent fourni
-(`deploy/com.stockwatch.courier.plist`), c'est automatique toutes les deux
-heures — et l'ordinateur n'a pas besoin de rester allumé en permanence, chaque
-passage prolongeant la validité de plusieurs heures.
+un cookie depuis ton ordinateur et le copie sur le serveur ; le bot relit le
+fichier dès qu'il change, sans redémarrage.
+
+Préparation du serveur, une seule fois — un dossier de dépôt que ton compte SSH
+peut écrire et que le service peut lire, pour qu'aucun `sudo` distant ne soit
+nécessaire ensuite :
 
 ```bash
+sudo install -d -o ubuntu -g stockwatch -m 2770 /opt/stockwatch/incoming
+echo STOCKWATCH_COOKIE_FILE=/opt/stockwatch/incoming/cookie.txt | sudo tee -a /opt/stockwatch/.env
+sudo systemctl restart stockwatch
+```
+
+Sur ton ordinateur, Playwright une fois, puis le dépôt :
+
+```bash
+.venv/bin/pip install playwright && .venv/bin/playwright install chromium
 bash deploy/mac-cookie-courier.sh ubuntu@mon-serveur
 ```
+
+Avec le LaunchAgent fourni (`deploy/com.stockwatch.courier.plist`), c'est
+automatique toutes les deux heures — et l'ordinateur n'a pas besoin de rester
+allumé en permanence, chaque passage prolongeant la validité de plusieurs
+heures.
 
 **Un proxy résidentiel, pour la seule visite du navigateur.**
 
