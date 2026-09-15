@@ -136,6 +136,12 @@ class StockWatchSettings(BaseSettings):
     # Renouveler le cookie tout seul avec un navigateur headless (Playwright).
     # Sans Playwright installé, le bot se rabat sur STOCKWATCH_COOKIE.
     auto_cookie: bool = Field(default=True, alias="STOCKWATCH_AUTO_COOKIE")
+    # Proxy réservé à la visite du navigateur. Utile quand l'adresse du serveur
+    # est refusée mais qu'on ne veut pas y faire passer toute la surveillance.
+    browser_proxy_url: SecretStr | None = Field(default=None, alias="STOCKWATCH_BROWSER_PROXY_URL")
+    # Fichier déposé par une machine tierce (ton ordinateur, par exemple) :
+    # le bot le relit dès qu'il change, sans redémarrage.
+    cookie_file: Path = Field(default=Path("cookie.txt"), alias="STOCKWATCH_COOKIE_FILE")
     # Âge au-delà duquel on va en chercher un neuf, même si tout va bien.
     cookie_refresh_minutes: int = Field(default=180, alias="STOCKWATCH_COOKIE_REFRESH_MINUTES")
     # Délai minimal entre deux tentatives, pour ne pas lancer un navigateur à

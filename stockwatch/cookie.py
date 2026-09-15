@@ -114,7 +114,7 @@ def mask(value: str) -> str:
     return f"{len(names)} cookies ({len(value)} caractères) : {preview}"
 
 
-def run_auto(env_path: Path, url: str, locale: str) -> int:
+def run_auto(env_path: Path, url: str, locale: str, *, to_stdout: bool = False) -> int:
     """Obtenir un cookie via un navigateur headless et l'écrire dans .env.
 
     Sert surtout à vérifier l'installation : une fois le bot lancé, il renouvelle
@@ -124,17 +124,25 @@ def run_auto(env_path: Path, url: str, locale: str) -> int:
 
     from .browser import BrowserUnavailable, fetch_session
 
-    print(f"Ouverture de {url} dans un navigateur headless…")
+    if to_stdout:
+        # Mode convoyeur : seul le cookie va sur la sortie standard, les
+        # messages sur la sortie d'erreur, pour que le script puisse rediriger.
+        print(f"Ouverture de {url} dans un navigateur headless…", file=sys.stderr)
+    else:
+        print(f"Ouverture de {url} dans un navigateur headless…")
     try:
         session = asyncio.run(fetch_session(url, locale=locale))
     except BrowserUnavailable as exc:
-        print()
-        print(f"❌ {exc}")
+        print(f"❌ {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 - message utile plutôt qu'une trace
-        print()
-        print(f"❌ Le navigateur n'a pas abouti : {exc}")
+        print(f"❌ Le navigateur n'a pas abouti : {exc}", file=sys.stderr)
         return 1
+
+    if to_stdout:
+        print(session.cookie)
+        print(f"✅ {mask(session.cookie)}", file=sys.stderr)
+        return 0
 
     write_env(env_path, "STOCKWATCH_COOKIE", session.cookie)
     write_env(env_path, "STOCKWATCH_USER_AGENT", session.user_agent)

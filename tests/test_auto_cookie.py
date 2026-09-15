@@ -240,3 +240,52 @@ class TestManualRequest:
         fake_browser(monkeypatch, BrowserSession(cookie="a=1", user_agent="Chrome"))
         await monitor.refresh_cookie(force=True)
         assert monitor.last_cookie_error is None
+
+
+class TestCookieInbox:
+    """Quand l'adresse du serveur est refusée, une machine de confiance peut
+    déposer un cookie : le bot doit le prendre sans redémarrage."""
+
+    def _monitor(self, tmp_path, config, state, notifier, path):
+        settings = StockWatchSettings(
+            _env_file=None, STOCKWATCH_BOT_TOKEN="1:x",
+            STOCKWATCH_STATE_FILE=str(tmp_path / "state.json"),
+            STOCKWATCH_COOKIE_FILE=str(path),
+        )
+        return Monitor(settings, config, FakeClient([PAGE]), notifier, state)
+
+    async def test_a_deposited_cookie_is_adopted(self, tmp_path, config, state, fake_notifier):
+        path = tmp_path / "cookie.txt"
+        monitor = self._monitor(tmp_path, config, state, fake_notifier, path)
+
+        assert await monitor.adopt_cookie_file() is False       # rien déposé
+        path.write_text("ANFSession=abc; _abck=zz\n", "utf-8")
+        assert await monitor.adopt_cookie_file() is True
+        await monitor._drain()
+
+        assert monitor.client.identity[0] == "ANFSession=abc; _abck=zz"
+        assert state.session["cookie"] == "ANFSession=abc; _abck=zz"
+        assert any("Cookie reçu" in message for message in fake_notifier.messages)
+
+    async def test_the_same_file_is_not_adopted_twice(self, tmp_path, config, state, fake_notifier):
+        path = tmp_path / "cookie.txt"
+        path.write_text("a=1", "utf-8")
+        monitor = self._monitor(tmp_path, config, state, fake_notifier, path)
+
+        assert await monitor.adopt_cookie_file() is True
+        assert await monitor.adopt_cookie_file() is False
+
+    async def test_a_curl_paste_is_accepted_too(self, tmp_path, config, state, fake_notifier):
+        path = tmp_path / "cookie.txt"
+        path.write_text("curl 'https://x' -H 'Cookie: a=1; b=2'", "utf-8")
+        monitor = self._monitor(tmp_path, config, state, fake_notifier, path)
+
+        assert await monitor.adopt_cookie_file() is True
+        assert monitor.client.identity[0] == "a=1; b=2"
+
+    async def test_an_unusable_file_is_ignored(self, tmp_path, config, state, fake_notifier):
+        path = tmp_path / "cookie.txt"
+        path.write_text("bonjour", "utf-8")
+        monitor = self._monitor(tmp_path, config, state, fake_notifier, path)
+
+        assert await monitor.adopt_cookie_file() is False

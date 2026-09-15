@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Déposer un cookie neuf sur le serveur toutes les deux heures, depuis ce Mac.
+
+  1. Adapte les deux chemins et l'adresse du serveur ci-dessous.
+  2. cp deploy/com.stockwatch.courier.plist ~/Library/LaunchAgents/
+  3. launchctl load -w ~/Library/LaunchAgents/com.stockwatch.courier.plist
+
+  Le Mac n'a pas besoin de rester allumé en permanence : chaque passage
+  prolonge la validité du cookie de plusieurs heures.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.stockwatch.courier</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/CHANGE_ME/Downloads/Hollister-main/deploy/mac-cookie-courier.sh</string>
+        <string>ubuntu@CHANGE_ME</string>
+    </array>
+
+    <key>WorkingDirectory</key><string>/Users/CHANGE_ME/Downloads/Hollister-main</string>
+    <key>StartInterval</key><integer>7200</integer>
+    <key>RunAtLoad</key><true/>
+
+    <key>StandardOutPath</key><string>/tmp/stockwatch-courier.log</string>
+    <key>StandardErrorPath</key><string>/tmp/stockwatch-courier.log</string>
+</dict>
+</plist>

@@ -72,7 +72,13 @@ class BrowserUnavailable(RuntimeError):
     """Playwright n'est pas installé, ou son navigateur n'est pas téléchargé."""
 
 
-async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.0) -> BrowserSession:
+async def fetch_session(
+    url: str,
+    *,
+    locale: str = "fr-FR",
+    timeout: float = 60.0,
+    proxy: str | None = None,
+) -> BrowserSession:
     """Ouvre `url` dans Chromium et renvoie les cookies obtenus.
 
     Le User-Agent est celui du navigateur lui-même : un cookie de contrôle est
@@ -97,6 +103,10 @@ async def fetch_session(url: str, *, locale: str = "fr-FR", timeout: float = 60.
         try:
             browser = await playwright.chromium.launch(
                 headless=True,
+                # Seule cette visite passe par le proxy : quelques centaines de
+                # kilo-octets toutes les trois heures, là où y faire transiter
+                # la surveillance entière coûterait des gigaoctets.
+                proxy={"server": proxy} if proxy else None,
                 # Sur un serveur, le bac à sable de Chromium demande des
                 # privilèges que le service n'a volontairement pas, et /dev/shm
                 # y est trop petit. Le navigateur ne visite qu'une URL connue,

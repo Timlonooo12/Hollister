@@ -45,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     cookie.add_argument("--env", default=".env", help="Fichier .env à mettre à jour")
     cookie.add_argument("--auto", action="store_true",
                         help="Obtenir le cookie tout seul via un navigateur headless")
+    cookie.add_argument("--print", dest="to_stdout", action="store_true",
+                        help="Écrire le cookie sur la sortie standard au lieu du .env")
     return parser
 
 
@@ -66,7 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.auto:
             settings = load_settings(allow_missing_token=True)
             configure_logging(settings.log_level)
-            return run_auto(Path(args.env), settings.product_url, settings.accept_language)
+            return run_auto(Path(args.env), settings.product_url, settings.accept_language,
+                            to_stdout=args.to_stdout)
         return run_cookie(Path(args.env))
 
     if args.command == "probe":

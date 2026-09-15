@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from .browser import BrowserUnavailable, fetch_session
 from .client import FetchResult, ProductClient
 from .config import StockWatchSettings, WatchConfig
+from .cookie import extract_cookie
 from .notifier import TelegramNotifier
 from .parsing import ParseResult, owners_matching_colour, parse_availability
 from .schedule import format_window, seconds_until_wake
@@ -78,6 +79,7 @@ class Monitor:
         self._last_cookie_attempt: datetime | None = None
         self._browser_missing_notified = False
         self.last_cookie_error: str | None = None
+        self._cookie_file_seen: float = 0.0
         self._last_sizes: dict[str, bool] = {}
         self._last_labels: dict[str, str] = {}
         self._budget_notified = False
@@ -365,6 +367,7 @@ class Monitor:
                                                      self.config.quiet_end))
             else:
                 self._leave_sleep()
+                await self.adopt_cookie_file()
                 if not self.config.paused:
                     try:
                         tick = await self.check_once()
@@ -384,6 +387,43 @@ class Monitor:
         await self._drain()
 
     # -- cookie automatique ------------------------------------------------
+    async def adopt_cookie_file(self) -> bool:
+        """Prendre en compte un cookie déposé par une autre machine.
+
+        Quand l'adresse du serveur est refusée mais qu'une machine de confiance
+        (un ordinateur personnel, par exemple) peut en obtenir un, il suffit de
+        déposer le fichier : le bot le relit dès qu'il change, sans redémarrage
+        ni intervention.
+        """
+        path = self.settings.cookie_file
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            return False
+        if stamp <= self._cookie_file_seen:
+            return False
+        self._cookie_file_seen = stamp
+
+        cookie = extract_cookie(path.read_text("utf-8", errors="replace"))
+        if not cookie:
+            logger.warning("%s ne contient pas de cookie exploitable", path)
+            return False
+
+        self.client.set_identity(cookie, None)
+        await self.state.remember_session(cookie, self.settings.user_agent)
+        self._typical_body = 0
+        self.state.bump("cookies_renewed")
+        self.last_cookie_error = None
+        logger.info("Cookie repris depuis %s", path)
+        self._spawn(
+            self.notifier.broadcast(
+                "🍪 <b>Cookie reçu</b>\nDéposé par une autre machine — la surveillance "
+                "repart avec une session neuve.",
+                silent=True,
+            )
+        )
+        return True
+
     def _cookie_is_stale(self) -> bool:
         if not self.settings.auto_cookie or self.settings.cookie_refresh_minutes <= 0:
             return False
@@ -413,7 +453,12 @@ class Monitor:
 
             logger.info("Renouvellement du cookie (%s)…", reason or "demandé")
             try:
-                session = await fetch_session(self.config.product_url, locale=self.settings.accept_language)
+                proxy = self.settings.browser_proxy_url or self.settings.proxy_url
+                session = await fetch_session(
+                    self.config.product_url,
+                    locale=self.settings.accept_language,
+                    proxy=proxy.get_secret_value() if proxy else None,
+                )
             except BrowserUnavailable as exc:
                 logger.warning("Cookie non renouvelé : %s", exc)
                 self.last_cookie_error = str(exc)

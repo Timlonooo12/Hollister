@@ -329,6 +329,34 @@ python -m stockwatch cookie --auto     # en ligne de commande
 
 `/status` indique l'âge du cookie et le nombre de renouvellements.
 
+### Quand le serveur ne peut pas en obtenir
+
+Certains sites refusent toute nouvelle session venant d'une adresse de
+datacenter — le navigateur reçoit un `403` ou un `418` avant même la page,
+quel que soit son déguisement. Le cookie doit alors être créé ailleurs. Deux
+montages, au choix :
+
+**Une machine de confiance le dépose.** `deploy/mac-cookie-courier.sh` obtient
+un cookie depuis ton ordinateur et le copie sur le serveur par SSH ; le bot
+relit le fichier dès qu'il change, sans redémarrage. Avec le LaunchAgent fourni
+(`deploy/com.stockwatch.courier.plist`), c'est automatique toutes les deux
+heures — et l'ordinateur n'a pas besoin de rester allumé en permanence, chaque
+passage prolongeant la validité de plusieurs heures.
+
+```bash
+bash deploy/mac-cookie-courier.sh ubuntu@mon-serveur
+```
+
+**Un proxy résidentiel, pour la seule visite du navigateur.**
+
+```bash
+STOCKWATCH_BROWSER_PROXY_URL=http://utilisateur:motdepasse@hôte:port
+```
+
+Seule cette visite y passe : quelques centaines de kilo-octets toutes les trois
+heures, là où faire transiter la surveillance entière coûterait des gigaoctets.
+Le serveur redevient alors totalement autonome.
+
 ### Le fournir à la main
 
 Le plus simple : clic droit sur la ligne du **document** dans l'onglet Réseau →
@@ -590,7 +618,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 178 tests
+python -m pytest -q        # 190 tests
 python -m ruff check .
 ```
 
@@ -607,7 +635,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 178 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 190 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il
