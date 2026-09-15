@@ -46,7 +46,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "diagnose":
         settings = load_settings(allow_missing_token=True)
         configure_logging(settings.log_level)
-        return run_diagnose(settings, url=args.url, file=args.file, save=args.save)
+        try:
+            return run_diagnose(settings, url=args.url, file=args.file, save=args.save)
+        except BrokenPipeError:
+            # `... | head` ferme le tuyau : ce n'est pas une erreur du diagnostic.
+            return 0
 
     try:
         settings = load_settings()

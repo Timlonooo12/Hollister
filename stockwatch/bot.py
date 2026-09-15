@@ -29,7 +29,8 @@ HELP = (
     "/check — vérifier tout de suite\n"
     "/tailles XS,S — choisir les tailles surveillées\n"
     "/produit &lt;url&gt; — changer le produit surveillé\n"
-    "/variante &lt;id&gt; — choisir le coloris quand la page en contient plusieurs\n"
+    "/couleur Blanc — choisir le coloris par son nom (recommandé)\n"
+    "/variante &lt;id&gt; — choisir le coloris par son identifiant\n"
     "/intervalle 1 — délai entre deux vérifications (secondes)\n"
     "/pause et /reprendre — suspendre ou relancer la surveillance\n"
     "/id — afficher l'identifiant de ce chat\n"
@@ -152,6 +153,38 @@ async def cmd_product(message: Message, command: CommandObject, config: WatchCon
     await store.save()
     await message.answer(
         f"✅ Nouveau produit surveillé : <b>{html.escape(config.product_label)}</b>\n{html.escape(url)}"
+    )
+
+
+@router.message(Command("couleur", "color"))
+async def cmd_colour(message: Message, command: CommandObject, config: WatchConfig, store: StateStore,
+                     settings: StockWatchSettings) -> None:
+    """Choisir le coloris par son nom, tel qu'il s'affiche sur la fiche.
+
+    Plus sûr que l'identifiant numérique : les identifiants ne disent rien à
+    personne et changent d'un article à l'autre, « Blanc » non.
+    """
+    if not command.args:
+        current = config.product_color or "(aucun — sélection par identifiant)"
+        await message.answer(
+            f"🎨 Coloris suivi : <b>{html.escape(current)}</b>\n"
+            "Pour changer : <code>/couleur Blanc</code>\n"
+            "Les noms disponibles sont donnés par <code>python -m stockwatch diagnose</code>."
+        )
+        return
+    if not _is_owner(message, settings):
+        await _deny(message)
+        return
+    colour = command.args.strip()
+    config.product_color = colour
+    config.product_id = ""          # le nom prime : on efface l'identifiant
+    await store.set_override("product_color", colour)
+    await store.set_override("product_id", "")
+    store.sizes.clear()             # la mémoire du stock était celle d'un autre coloris
+    await store.save()
+    await message.answer(
+        f"✅ Coloris suivi : <b>{html.escape(colour)}</b>\n"
+        "Vérifie avec <code>/check</code> que les tailles correspondent bien à la fiche."
     )
 
 

@@ -198,6 +198,9 @@ def apply_overrides(config: Any, overrides: dict[str, Any]) -> None:
     variant = overrides.get("product_id")
     if isinstance(variant, str):
         config.product_id = variant.strip()
+    colour = overrides.get("product_color")
+    if isinstance(colour, str):
+        config.product_color = colour.strip()
     paused = overrides.get("paused")
     if isinstance(paused, bool):
         config.paused = paused

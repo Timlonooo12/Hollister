@@ -134,7 +134,8 @@ téléchargé (pratique pour tester sans requêter le site).
 | `/check` | Vérification immédiate, réponse en direct |
 | `/tailles XS,S` | Changer les tailles surveillées (`xs`, `Small`, `X-Small`… acceptés) |
 | `/produit <url>` | Changer le produit surveillé |
-| `/variante <id>` | Choisir le coloris quand la page en contient plusieurs |
+| `/couleur Blanc` | Choisir le coloris par son nom — le plus sûr |
+| `/variante <id>` | Choisir le coloris par son identifiant interne |
 | `/intervalle 1` | Délai entre deux vérifications, en secondes |
 | `/pause` / `/reprendre` | Suspendre ou relancer la surveillance |
 | `/id` | Afficher l'identifiant du chat (pour `STOCKWATCH_CHAT_IDS`) |
@@ -213,8 +214,21 @@ chaque identifiant :
          épuisées : XS, S
 ```
 
-Compare avec la page, puis désigne le bon : `/variante 63503980` sur Telegram
-(ou `STOCKWATCH_PRODUCT_ID=63503980` dans `.env`).
+`diagnose` donne le nom de chaque coloris quand la page le porte :
+
+```
+     • Blanc (produit 63492467)
+         dispo    : aucune
+         épuisées : XXS, XS, S, M, L, XL, XXL
+     • Vert sauge (produit 63503980)
+         dispo    : XXL
+         épuisées : XXS, XS, S, M, L, XL
+```
+
+Désigne alors le tien par son nom : `/couleur Blanc` sur Telegram (ou
+`STOCKWATCH_PRODUCT_COLOR=Blanc` dans `.env`). L'identifiant numérique reste
+possible via `/variante`, mais un nom de coloris se vérifie d'un coup d'œil sur
+la fiche, pas un nombre à huit chiffres.
 
 ### « Les tailles sont listées sans état de stock »
 
@@ -262,7 +276,8 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_OWNER_ID` | vide | Seul autorisé à modifier la surveillance |
 | `STOCKWATCH_PRODUCT_URL` | Icon Henley | Page surveillée |
 | `STOCKWATCH_SIZES` | `XS,S` | Tailles surveillées |
-| `STOCKWATCH_PRODUCT_ID` | vide | Identifiant du coloris, si la page en contient plusieurs |
+| `STOCKWATCH_PRODUCT_COLOR` | vide | Nom du coloris suivi (« Blanc ») — prioritaire |
+| `STOCKWATCH_PRODUCT_ID` | vide | Identifiant interne du coloris, à défaut de nom |
 | `STOCKWATCH_POLL_INTERVAL` | `1.0` | Secondes entre deux vérifications |
 | `STOCKWATCH_ALERT_ON_FIRST_SEEN` | `true` | Alerter si déjà dispo au démarrage |
 | `STOCKWATCH_REPEAT_ALERT_MINUTES` | `0` | Rappel tant que c'est dispo (0 = aucun) |
@@ -434,7 +449,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 97 tests
+python -m pytest -q        # 102 tests
 python -m ruff check .
 ```
 
@@ -451,7 +466,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 97 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 102 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

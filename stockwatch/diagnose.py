@@ -67,7 +67,12 @@ async def diagnose(
     print(f"Produit id  : {product_id or '—'}")
     print(f"Blocs JSON  : {len(blobs)}")
 
-    parsed = parse_availability(body, product_id=product_id, html_fallback=settings.html_fallback)
+    parsed = parse_availability(
+        body,
+        product_id=product_id,
+        product_color=settings.product_color or None,
+        html_fallback=settings.html_fallback,
+    )
     print(f"Stratégie   : {parsed.strategy}")
     print()
 
@@ -78,15 +83,9 @@ async def diagnose(
             print("   fusionner leurs stocks ferait sonner l'alerte pour le mauvais coloris.")
             print()
             print("   Stock lu pour chacun — repère celui qui correspond à ce que montre le site :")
-            for owner, sizes in _group_by_owner(parsed).items():
-                dispo = ", ".join(size for size, ok in sorted(sizes.items()) if ok) or "aucune"
-                epuise = ", ".join(size for size, ok in sorted(sizes.items()) if not ok) or "aucune"
-                print(f"     • produit {owner}")
-                print(f"         dispo    : {dispo}")
-                print(f"         épuisées : {epuise}")
+            _print_owner_table(parsed)
             print()
-            print("   Puis dis-le au bot :  /variante <identifiant>")
-            print("   (ou STOCKWATCH_PRODUCT_ID=<identifiant> dans .env)")
+            print("   Puis dis-le au bot :  /couleur <nom>   (ou /variante <identifiant>)")
             return 1
         if parsed.strategy == "html-no-stock-state":
             print("❌ Les tailles sont dans la page, mais SANS état de stock.")
@@ -108,6 +107,14 @@ async def diagnose(
     print("Tailles détectées :")
     for size, available in sorted(parsed.sizes.items()):
         print(f"  {'✅ DISPO    ' if available else '❌ épuisée  '} {size}")
+    everything = parse_availability(body, html_fallback=False)
+    if len(everything.labels) > 1 or len({o.owner for o in everything.observations if o.owner}) > 1:
+        print()
+        print("Coloris présents sur la page — vérifie que le tien correspond :")
+        _print_owner_table(everything)
+        print()
+        print("   Pour en suivre un autre :  /couleur <nom>   (ou /variante <identifiant>)")
+
     print()
     print(f"Observations ({len(parsed.observations)}) — 20 premières :")
     for observation in parsed.observations[:20]:
@@ -130,6 +137,17 @@ def _human(count: int) -> str:
             return f"{value:.0f} {unit}" if unit == "o" else f"{value:.1f} {unit}"
         value /= 1024
     return f"{value:.1f} Go"
+
+
+def _print_owner_table(parsed: ParseResult) -> None:
+    for owner, sizes in _group_by_owner(parsed).items():
+        dispo = ", ".join(size for size, ok in sorted(sizes.items()) if ok) or "aucune"
+        epuise = ", ".join(size for size, ok in sorted(sizes.items()) if not ok) or "aucune"
+        name = parsed.labels.get(owner)
+        title = f"{name} (produit {owner})" if name else f"produit {owner}"
+        print(f"     • {title}")
+        print(f"         dispo    : {dispo}")
+        print(f"         épuisées : {epuise}")
 
 
 def _group_by_owner(parsed: ParseResult) -> dict[str, dict[str, bool]]:

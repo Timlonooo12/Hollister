@@ -269,6 +269,52 @@ class TestRealCatalogueSchemas:
         assert result.strategy == "json-ambiguous-products"
         assert result.sizes == {}
 
+    COLOURS = {"productId": "63586319", "CACHE": {
+        "Product:63503980": {"productId": "63503980", "colorName": "Vert sauge", "skus": [
+            {"sizePrimary": "S_p", "inventory": 2, "inventoryStatus": "InStock"},
+            {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+        "Product:63492467": {"productId": "63492467", "colorName": "Blanc", "skus": [
+            {"sizePrimary": "S_p", "inventory": 0, "inventoryStatus": "Unavailable"},
+            {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+    }}
+
+    def _colours_body(self) -> str:
+        return "<script>window['APOLLO_STATE__x'] = " + json.dumps(self.COLOURS) + ";</script>"
+
+    def test_colour_names_are_collected(self):
+        result = parse_availability(self._colours_body())
+        assert result.labels == {"63503980": "Vert sauge", "63492467": "Blanc"}
+
+    def test_a_colour_name_selects_the_right_product(self):
+        result = parse_availability(self._colours_body(), product_color="blanc")
+        assert result.strategy == "json-couleur"
+        assert result.sizes == {"S": False, "XS": False}
+
+    def test_colour_matching_ignores_case_and_accents(self):
+        assert parse_availability(self._colours_body(), product_color="VERT SAUGE").sizes == {
+            "S": True, "XS": False}
+        assert parse_availability(self._colours_body(), product_color="vert").sizes == {
+            "S": True, "XS": False}
+
+    def test_an_unknown_colour_falls_back_instead_of_inventing(self):
+        result = parse_availability(self._colours_body(), product_color="rouge")
+        assert result.sizes == {}
+        assert result.strategy == "json-ambiguous-products"
+
+    def test_a_colour_matching_two_products_is_refused(self):
+        payload = {"CACHE": {
+            "Product:1": {"productId": "1", "colorName": "Blanc", "skus": [
+                {"sizePrimary": "S_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+            "Product:2": {"productId": "2", "colorName": "Blanc cassé", "skus": [
+                {"sizePrimary": "S_p", "inventory": 7, "inventoryStatus": "InStock"}]},
+        }}
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(payload) + ";</script>"
+        result = parse_availability(body, product_color="blanc")
+        # « Blanc » correspond exactement à l'un des deux : pas d'ambiguïté.
+        assert result.sizes == {"S": False}
+        # « blan » correspond aux deux : on refuse.
+        assert parse_availability(body, product_color="blan").strategy == "json-ambiguous-products"
+
     def test_one_product_needs_no_disambiguation(self):
         payload = {"product": {"productId": "111", "skus": [
             {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"},

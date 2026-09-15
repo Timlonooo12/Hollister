@@ -109,6 +109,7 @@ class Monitor:
         parsed = parse_availability(
             result.body,
             product_id=self.config.effective_product_id(),
+            product_color=self.config.product_color or None,
             html_fallback=self.settings.html_fallback,
         )
         if not parsed.found:
@@ -345,7 +346,8 @@ class Monitor:
             "📊 <b>État de la surveillance</b>",
             "",
             f"👕 Produit : {html.escape(self.config.product_label or 'Produit surveillé')}",
-            f"🎯 Tailles : <b>{html.escape(', '.join(self.config.sizes))}</b>",
+            f"🎯 Tailles : <b>{html.escape(', '.join(self.config.sizes))}</b>"
+            + (f"  •  🎨 {html.escape(self.config.product_color)}" if self.config.product_color else ""),
             f"⚡ Intervalle : {self.config.poll_interval:g} s"
             + ("  (⏸ en pause)" if self.config.paused else ""),
             f"⏱ Actif depuis : {_humanize(uptime)}",

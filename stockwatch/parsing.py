@@ -358,6 +358,9 @@ class ParseResult:
     sizes: dict[str, bool] = field(default_factory=dict)
     observations: list[SizeObservation] = field(default_factory=list)
     strategy: str = "none"
+    # productId -> nom du coloris, pour que `diagnose` et /variante parlent en
+    # « Blanc » plutôt qu'en 63503980.
+    labels: dict[str, str] = field(default_factory=dict)
 
     @property
     def guessed_sizes(self) -> dict[str, bool]:
@@ -378,6 +381,12 @@ _ID_KEYS = {"productid", "id", "sku", "productcode", "masterproductid", "parenti
 # Keys naming the product a node belongs to — used to keep one colourway's
 # stock from being merged with another's.
 _OWNER_KEYS = {"productid", "masterproductid", "collectionid"}
+# Keys carrying the human name of a colourway. Numeric product ids mean nothing
+# to anyone; "Blanc" is what the shopper sees on the page.
+_COLOUR_KEYS = {
+    "color", "colour", "colorname", "colourname", "couleur", "colorlabel",
+    "swatchname", "colordescription", "colorway", "displaycolor", "colorgroup",
+}
 _JOIN_ID_KEYS = {
     "skuid", "sku", "variantid", "variantcode", "itemid", "productitemid",
     "styleid", "id", "code", "key", "upc", "ean", "gtin",
@@ -398,6 +407,8 @@ class _Collector:
     """What one pass over the JSON documents found."""
 
     observations: list[SizeObservation] = field(default_factory=list)
+    # productId -> nom du coloris, quand la page le donne.
+    labels: dict[str, str] = field(default_factory=dict)
     # Split schemas keep the size labels and the stock levels in separate
     # structures, joined by a sku/variant id — collect both halves.
     size_by_id: dict[str, tuple[str, bool]] = field(default_factory=dict)
@@ -415,6 +426,16 @@ def _ids_of(node: dict[str, Any]) -> list[str]:
             if text:
                 values.append(text)
     return values
+
+
+def _colour_of(node: dict[str, Any]) -> str | None:
+    """Le nom de coloris porté par ce nœud, s'il y en a un."""
+    for raw_key, value in node.items():
+        if _key(raw_key) in _COLOUR_KEYS and isinstance(value, str):
+            text = value.strip()
+            if 0 < len(text) <= 40:
+                return text
+    return None
 
 
 def _owner_of(node: dict[str, Any], inherited: str | None) -> str | None:
@@ -445,6 +466,10 @@ def _walk(
                     here = True
                     break
         owner_here = _owner_of(node, owner)
+        if owner_here:
+            label = _colour_of(node)
+            if label:
+                out.labels.setdefault(owner_here, label)
         size = size_from_mapping(node)
         available = availability_from_mapping(node)
         if size and available is not None:
@@ -589,7 +614,28 @@ def merge_observations(observations: list[SizeObservation]) -> dict[str, bool]:
     return merged
 
 
-def parse_availability(body: str, *, product_id: str | None = None, html_fallback: bool = True) -> ParseResult:
+def owners_matching_colour(labels: dict[str, str], wanted: str) -> list[str]:
+    """Les produits dont le nom de coloris correspond à `wanted`.
+
+    Comparaison sans accents ni casse, par inclusion : « blanc » retrouve
+    « Blanc », « BLANC/WHITE » ou « Blanc cassé ».
+    """
+    target = _fold(wanted)
+    if not target:
+        return []
+    exact = [owner for owner, label in labels.items() if _fold(label) == target]
+    if exact:
+        return exact
+    return [owner for owner, label in labels.items() if target in _fold(label)]
+
+
+def parse_availability(
+    body: str,
+    *,
+    product_id: str | None = None,
+    product_color: str | None = None,
+    html_fallback: bool = True,
+) -> ParseResult:
     """Extract `{size: available}` from a product page or API response.
 
     `sizes` only ever holds readings the parser can defend; a guess (see
@@ -604,13 +650,26 @@ def parse_availability(body: str, *, product_id: str | None = None, html_fallbac
         _walk(blob, product_id, False, 0, collector)
 
     observations = collector.observations
+    labels = collector.labels
     strategy = "json"
     if not observations:
         observations = _joined_observations(collector)
         strategy = "json-join"
 
+    def result(sizes: dict[str, bool], chosen: list[SizeObservation], name: str) -> ParseResult:
+        return ParseResult(sizes=sizes, observations=chosen, strategy=name, labels=labels)
+
     if observations:
-        # 1. Le cas net : des lectures rattachées exactement au produit demandé.
+        # 1. Le coloris demandé par son nom — ce que voit l'acheteur sur la page.
+        if product_color:
+            wanted = owners_matching_colour(labels, product_color)
+            picked = [o for o in observations if o.owner in wanted]
+            if picked and len(set(wanted)) == 1:
+                return result(merge_observations(picked), picked, f"{strategy}-couleur")
+            if len(set(wanted)) > 1:
+                return result({}, observations, "json-ambiguous-products")
+
+        # 2. Le cas net : des lectures rattachées exactement au produit demandé.
         #    On compare au produit *le plus proche* de chaque lecture, jamais à
         #    un ancêtre : sur un cache Apollo, le produit affiché est nommé à la
         #    racine, et « tout ce qui descend de lui » englobe aussi les autres
@@ -618,34 +677,22 @@ def parse_availability(body: str, *, product_id: str | None = None, html_fallbac
         if product_id:
             owned = [observation for observation in observations if observation.owner == product_id]
             if owned:
-                return ParseResult(
-                    sizes=merge_observations(owned),
-                    observations=owned,
-                    strategy=f"{strategy}-focused",
-                )
+                return result(merge_observations(owned), owned, f"{strategy}-focused")
 
-        # 2. Faute de mieux : les lectures situées sous un nœud qui nomme le
+        # 3. Faute de mieux : les lectures situées sous un nœud qui nomme le
         #    produit, à condition qu'elles ne relèvent que d'un seul produit.
         focused = [observation for observation in observations if observation.focused]
         if focused:
             if len({observation.owner for observation in focused if observation.owner}) <= 1:
-                return ParseResult(
-                    sizes=merge_observations(focused),
-                    observations=focused,
-                    strategy=f"{strategy}-focused",
-                )
-            return ParseResult(sizes={}, observations=observations, strategy="json-ambiguous-products")
+                return result(merge_observations(focused), focused, f"{strategy}-focused")
+            return result({}, observations, "json-ambiguous-products")
 
-        # 3. Aucune piste : on ne conclut que si toute la page parle d'un seul
+        # 4. Aucune piste : on ne conclut que si toute la page parle d'un seul
         #    produit. Sinon on préfère dire qu'on ne sait pas.
         owners = {observation.owner for observation in observations if observation.owner}
         if len(owners) > 1:
-            return ParseResult(sizes={}, observations=observations, strategy="json-ambiguous-products")
-        return ParseResult(
-            sizes=merge_observations(observations),
-            observations=observations,
-            strategy=strategy,
-        )
+            return result({}, observations, "json-ambiguous-products")
+        return result(merge_observations(observations), observations, strategy)
 
     if html_fallback:
         html_observations = parse_html_size_buttons(body)
@@ -657,6 +704,7 @@ def parse_availability(body: str, *, product_id: str | None = None, html_fallbac
                 # Sizes rendered without any stock state: readable page, but the
                 # stock is not in it. Reported as unreadable, never as available.
                 strategy="html-heuristic" if confident else "html-no-stock-state",
+                labels=labels,
             )
 
-    return ParseResult()
+    return ParseResult(labels=labels)

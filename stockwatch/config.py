@@ -76,6 +76,9 @@ class StockWatchSettings(BaseSettings):
     # for the colour you want differs from the one in the URL, name it here
     # (`diagnose` prints the candidates).
     product_id: str = Field(default="", alias="STOCKWATCH_PRODUCT_ID")
+    # Plus simple que l'identifiant : le nom du coloris tel qu'il s'affiche sur
+    # la fiche (« Blanc »). Prioritaire sur product_id quand les deux sont là.
+    product_color: str = Field(default="", alias="STOCKWATCH_PRODUCT_COLOR")
     # Optional JSON endpoint. Left empty the watcher reads the product page and
     # digs the state out of the embedded JSON, which needs no guessing.
     api_url: str = Field(default="", alias="STOCKWATCH_API_URL")
@@ -215,6 +218,7 @@ class WatchConfig:
     poll_interval: float = 1.0
     paused: bool = False
     product_id: str = ""
+    product_color: str = ""
 
     def effective_product_id(self) -> str | None:
         """The id identifying the watched colourway inside the page."""
@@ -228,6 +232,7 @@ class WatchConfig:
             sizes=list(settings.sizes),
             poll_interval=settings.poll_interval,
             product_id=settings.product_id.strip(),
+            product_color=settings.product_color.strip(),
         )
 
 
