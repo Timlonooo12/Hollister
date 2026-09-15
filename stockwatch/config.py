@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .parsing import normalize_size, product_id_from_url
+from .schedule import is_quiet, resolve_timezone
 
 # The product the bot was originally built for (Hollister "Icon Henley").
 # Query parameters from the shared link are stripped: they only carry the
@@ -89,6 +91,13 @@ class StockWatchSettings(BaseSettings):
     poll_interval: float = Field(default=1.0, alias="STOCKWATCH_POLL_INTERVAL")
     request_timeout: float = Field(default=8.0, alias="STOCKWATCH_REQUEST_TIMEOUT")
     max_backoff: float = Field(default=60.0, alias="STOCKWATCH_MAX_BACKOFF")
+
+    # --- Veille nocturne ---
+    # Heures pleines, dans le fuseau ci-dessous. start == end désactive.
+    quiet_start: int = Field(default=-1, alias="STOCKWATCH_QUIET_START")
+    quiet_end: int = Field(default=-1, alias="STOCKWATCH_QUIET_END")
+    # Indispensable : un VPS tourne en UTC, « 20 h » n'y est pas 20 h chez toi.
+    timezone: str = Field(default="Europe/Paris", alias="STOCKWATCH_TIMEZONE")
 
     # --- Alerting ---
     alert_on_first_seen: bool = Field(default=True, alias="STOCKWATCH_ALERT_ON_FIRST_SEEN")
@@ -164,6 +173,12 @@ class StockWatchSettings(BaseSettings):
     def _positive(cls, value: float) -> float:
         return max(0.5, float(value))
 
+    @field_validator("quiet_start", "quiet_end")
+    @classmethod
+    def _valid_hour(cls, value: int) -> int:
+        value = int(value)
+        return value if 0 <= value <= 23 else -1
+
     @field_validator("product_url")
     @classmethod
     def _require_http(cls, value: str) -> str:
@@ -233,6 +248,21 @@ class WatchConfig:
     paused: bool = False
     product_id: str = ""
     product_color: str = ""
+    quiet_start: int = -1
+    quiet_end: int = -1
+    timezone: str = "Europe/Paris"
+
+    @property
+    def quiet_enabled(self) -> bool:
+        return 0 <= self.quiet_start <= 23 and 0 <= self.quiet_end <= 23 and self.quiet_start != self.quiet_end
+
+    def now(self) -> datetime:
+        """L'heure locale de l'utilisateur, pas celle du serveur."""
+        zone = resolve_timezone(self.timezone)
+        return datetime.now(zone) if zone else datetime.now().astimezone()
+
+    def is_quiet_now(self) -> bool:
+        return self.quiet_enabled and is_quiet(self.now(), self.quiet_start, self.quiet_end)
 
     def effective_product_id(self) -> str | None:
         """The id identifying the watched colourway inside the page."""
@@ -247,6 +277,9 @@ class WatchConfig:
             poll_interval=settings.poll_interval,
             product_id=settings.product_id.strip(),
             product_color=settings.product_color.strip(),
+            quiet_start=settings.quiet_start,
+            quiet_end=settings.quiet_end,
+            timezone=settings.timezone,
         )
 
 

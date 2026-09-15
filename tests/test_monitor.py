@@ -3,6 +3,7 @@ when the page stops being readable."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -239,3 +240,51 @@ class TestIntermittentBlocking:
         assert monitor.consecutive_errors == 1
         assert monitor._next_delay(0.0) == pytest.approx(config.poll_interval)
         assert state.stats["blocked"] == 3
+
+
+class TestQuietHours:
+    def _cover_now(self, config) -> None:
+        hour = config.now().hour
+        config.quiet_start, config.quiet_end = hour, (hour + 1) % 24
+
+    async def test_nothing_is_fetched_during_the_window(self, settings, config, state, fake_notifier):
+        self._cover_now(config)
+        client = FakeClient([page(XS=True, S=True)])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+
+        stop = asyncio.Event()
+        task = asyncio.create_task(monitor.run(stop))
+        await asyncio.sleep(0.05)
+        stop.set()
+        await task
+
+        assert client.calls == []                     # aucune requête
+        assert not any("DISPO" in m for m in fake_notifier.messages)
+        assert any("Veille nocturne" in m for m in fake_notifier.messages)
+
+    async def test_an_on_demand_check_still_works_while_asleep(self, settings, config, state, fake_notifier):
+        self._cover_now(config)
+        monitor = build(settings, config, state, fake_notifier, [page(XS=False, S=False)])
+        tick = await monitor.check_once()
+        assert tick.ok is True                        # le bouton « Vérifier » reste utile
+
+    async def test_the_window_is_reported(self, settings, config, state, fake_notifier):
+        self._cover_now(config)
+        monitor = build(settings, config, state, fake_notifier, [page(XS=False)])
+        assert monitor.sleeping is True
+        assert "En veille" in "\n".join(monitor.status_lines())
+
+    async def test_watching_resumes_outside_the_window(self, settings, config, state, fake_notifier):
+        hour = config.now().hour
+        config.quiet_start, config.quiet_end = (hour + 2) % 24, (hour + 3) % 24
+        client = FakeClient([page(XS=False, S=False)])
+        monitor = Monitor(settings, config, client, fake_notifier, state)
+
+        stop = asyncio.Event()
+        task = asyncio.create_task(monitor.run(stop))
+        await asyncio.sleep(0.05)
+        stop.set()
+        await task
+
+        assert client.calls                            # il a bien vérifié
+        assert monitor.sleeping is False

@@ -19,6 +19,7 @@ from .client import FetchResult, ProductClient
 from .config import StockWatchSettings, WatchConfig
 from .notifier import TelegramNotifier
 from .parsing import ParseResult, parse_availability
+from .schedule import format_window, seconds_until_wake
 from .state import StateStore, utcnow
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,9 @@ class Monitor:
         self._degraded_notified = False
         self._pending: set[asyncio.Task[object]] = set()
         self._last_sizes: dict[str, bool] = {}
+        self._last_labels: dict[str, str] = {}
         self._budget_notified = False
+        self._sleeping = False
 
     # -- one probe ---------------------------------------------------------
     async def check_once(self) -> Tick:
@@ -144,6 +147,8 @@ class Monitor:
         self._recover()
         newly_available = self._diff(parsed)
         self._last_sizes = dict(parsed.sizes)
+        if parsed.labels:
+            self._last_labels = dict(parsed.labels)
         tick = Tick(
             at=utcnow(),
             ok=True,
@@ -277,16 +282,62 @@ class Monitor:
         )
         while not stop.is_set():
             started = time.perf_counter()
-            if not self.config.paused:
-                try:
-                    await self.check_once()
-                except Exception:  # noqa: BLE001 - the loop must outlive any bug
-                    logger.exception("Unexpected error during check")
-                    self.consecutive_errors += 1
-            delay = self._next_delay(time.perf_counter() - started)
+            if self.config.is_quiet_now():
+                self._enter_sleep()
+                # On se réveille au plus tard dans une minute pour tenir compte
+                # d'un changement d'horaires fait depuis Telegram entre-temps.
+                delay = min(60.0, seconds_until_wake(self.config.now(), self.config.quiet_start,
+                                                     self.config.quiet_end))
+            else:
+                self._leave_sleep()
+                if not self.config.paused:
+                    try:
+                        await self.check_once()
+                    except Exception:  # noqa: BLE001 - the loop must outlive any bug
+                        logger.exception("Unexpected error during check")
+                        self.consecutive_errors += 1
+                delay = self._next_delay(time.perf_counter() - started)
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=delay)
         await self._drain()
+
+    # -- veille nocturne ---------------------------------------------------
+    def _enter_sleep(self) -> None:
+        if self._sleeping:
+            return
+        self._sleeping = True
+        wake = self.config.now().replace(hour=self.config.quiet_end % 24, minute=0)
+        logger.info("Mise en veille jusqu'à %sh", self.config.quiet_end)
+        self._spawn(
+            self.notifier.broadcast(
+                "😴 <b>Veille nocturne</b>\n"
+                f"Je ne vérifie plus jusqu'à {wake:%Hh%M}.\n"
+                "<i>/veille off pour surveiller en continu.</i>",
+                silent=True,
+            )
+        )
+
+    def _leave_sleep(self) -> None:
+        if not self._sleeping:
+            return
+        self._sleeping = False
+        logger.info("Fin de veille, reprise de la surveillance")
+        self._spawn(
+            self.notifier.broadcast(
+                "☀️ <b>Surveillance reprise</b>\n"
+                f"Une vérification toutes les {self.config.poll_interval:g} s.",
+                silent=True,
+            )
+        )
+
+    @property
+    def sleeping(self) -> bool:
+        return self._sleeping or self.config.is_quiet_now()
+
+    @property
+    def last_labels(self) -> dict[str, str]:
+        """Coloris vus lors de la dernière lecture — sert aux boutons."""
+        return dict(self._last_labels)
 
     def _next_delay(self, elapsed: float) -> float:
         """Keep a steady cadence, but back off while failing or over budget."""
@@ -339,6 +390,15 @@ class Monitor:
             await asyncio.gather(*list(self._pending), return_exceptions=True)
 
     # -- introspection (used by /status) -----------------------------------
+    def _sleep_line(self) -> str:
+        if not self.config.quiet_enabled:
+            return "🌙 Veille : désactivée"
+        window = format_window(self.config.quiet_start, self.config.quiet_end)
+        if self.sleeping:
+            reprise = seconds_until_wake(self.config.now(), self.config.quiet_start, self.config.quiet_end)
+            return f"😴 En veille ({window}) — reprise dans {_humanize(timedelta(seconds=reprise))}"
+        return f"🌙 Veille : {window} ({self.config.timezone})"
+
     def status_lines(self) -> list[str]:
         now = utcnow()
         uptime = now - self.started_at
@@ -351,6 +411,7 @@ class Monitor:
             f"⚡ Intervalle : {self.config.poll_interval:g} s"
             + ("  (⏸ en pause)" if self.config.paused else ""),
             f"⏱ Actif depuis : {_humanize(uptime)}",
+            self._sleep_line(),
             f"🔁 Vérifications : {self.state.stats.get('checks', 0)}  •  "
             f"Alertes : {self.state.stats.get('alerts', 0)}  •  Erreurs : {self.state.stats.get('errors', 0)}",
         ]

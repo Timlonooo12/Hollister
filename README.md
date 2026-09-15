@@ -114,7 +114,7 @@ Tailles détectées :
 
 - **Les tailles apparaissent** → tout est bon, lance `python -m stockwatch`.
 - **« Aucune taille détectée »** → la sortie dit quoi faire. Deux cas :
-  - *page de blocage* (Akamai/captcha) : voir §5 ;
+  - *page de blocage* (Akamai/captcha) : voir §7 ;
   - *structure changée* : envoie-moi la sortie de
     `python -m stockwatch diagnose --save page.html`, l'analyse se corrige dans
     `stockwatch/parsing.py`.
@@ -124,10 +124,56 @@ téléchargé (pratique pour tester sans requêter le site).
 
 ---
 
-## 3. Commandes Telegram
+## 3. Le bot au quotidien
+
+Tout se pilote depuis **/menu** : un seul message, mis à jour sur place, avec
+des boutons. Pas de commandes à retenir, pas de fil qui se remplit.
+
+```
+🤖 Surveillance de stock
+
+👕 Icon Henley — Blanc
+🎯 Tailles suivies : XS, S
+📦 ❌ XS  ❌ S
+🕒 Dernier contrôle : 02:44:11 (23 ms)
+⚡ Une vérification toutes les 1 s
+🌙 Veille : 20h00 → 07h00
+
+[🔎 Vérifier maintenant] [🔄 Actualiser]
+[📏 Tailles]             [🎨 Coloris]
+[⚡ Cadence]             [🌙 Veille]
+[⏸ Mettre en pause]     [📊 Détails]
+[🛒 Ouvrir la fiche]     [❓ Aide]
+```
+
+- **📏 Tailles** — coche et décoche XXS à XXL d'un doigt.
+- **🎨 Coloris** — un bouton par coloris détecté dans la page, avec son nom
+  (« Blanc », « Vert sauge »), pas un identifiant à huit chiffres.
+- **⚡ Cadence** — de 1 seconde à 5 minutes.
+- **🌙 Veille** — désactivée, 20h→7h, 22h→8h ou 0h→8h.
+
+## 4. Veille nocturne
+
+```bash
+STOCKWATCH_QUIET_START=20
+STOCKWATCH_QUIET_END=7
+STOCKWATCH_TIMEZONE=Europe/Paris
+```
+
+Pendant la plage, le bot **ne fait plus aucune requête** : pas d'alerte, pas de
+trafic, pas de CPU. Il s'endort et se réveille tout seul, en te prévenant une
+fois à chaque fois. La plage peut traverser minuit (20 → 7), et le fuseau est
+le tien : un serveur tourne en UTC, où « 20 h » n'est pas 20 h chez toi.
+
+`/veille 20 7` et `/veille off` font la même chose au clavier. Le bouton
+« 🔎 Vérifier maintenant » reste actif pendant la veille, pour un contrôle
+ponctuel.
+
+## 5. Commandes Telegram
 
 | Commande | Effet |
 |---|---|
+| `/menu` | Le tableau de bord à boutons |
 | `/start` | S'abonner aux alertes dans ce chat |
 | `/stop` | Se désabonner |
 | `/status` | Produit, tailles, stock actuel, latence, statistiques, erreurs |
@@ -137,6 +183,7 @@ téléchargé (pratique pour tester sans requêter le site).
 | `/couleur Blanc` | Choisir le coloris par son nom — le plus sûr |
 | `/variante <id>` | Choisir le coloris par son identifiant interne |
 | `/intervalle 1` | Délai entre deux vérifications, en secondes |
+| `/veille 20 7` | Ne rien vérifier entre 20h et 7h (`/veille off` pour arrêter) |
 | `/pause` / `/reprendre` | Suspendre ou relancer la surveillance |
 | `/id` | Afficher l'identifiant du chat (pour `STOCKWATCH_CHAT_IDS`) |
 | `/aide` | Rappel des commandes |
@@ -150,7 +197,7 @@ redémarrage.
 
 ---
 
-## 4. Comment l'alerte « à la seconde » fonctionne
+## 6. Comment l'alerte « à la seconde » fonctionne
 
 - une requête HTTP par seconde, sur une **connexion maintenue ouverte**
   (pas de poignée de main TLS à chaque tour) : un contrôle coûte ~100–400 ms ;
@@ -175,7 +222,7 @@ jamais « épuisé »** : il compte les échecs, ralentit progressivement
 
 ---
 
-## 5. Si le site bloque les requêtes
+## 7. Si le site bloque les requêtes
 
 Les grandes enseignes (Hollister = plateforme Abercrombie & Fitch) sont
 derrière un pare-feu applicatif. Symptôme : `HTTP 403`, « Access Denied » ou
@@ -192,7 +239,7 @@ derrière un pare-feu applicatif. Symptôme : `HTTP 403`, « Access Denied » ou
 
 ---
 
-## 5 bis. Lire le stock de la bonne fiche, et du bon coloris
+## 8. Lire le stock de la bonne fiche, et du bon coloris
 
 Deux messages possibles quand la lecture ne donne rien — ils disent tous les
 deux quoi faire plutôt que d'inventer une disponibilité.
@@ -264,7 +311,7 @@ ces quelques lignes suffisent à écrire le lecteur exact.
 
 ---
 
-## 6. Configuration
+## 9. Configuration
 
 Tout se règle par variables d'environnement (ou `.env`). `.env.example` liste
 les valeurs commentées ; les principales :
@@ -285,6 +332,8 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_CONDITIONAL_REQUESTS` | `true` | ETag : ne retélécharge la page que si elle a changé |
 | `STOCKWATCH_DAILY_BUDGET_MB` | `0` | Plafond de données par jour (0 = illimité) |
 | `STOCKWATCH_FAILURE_GRACE` | `3` | Échecs tolérés à cadence normale avant de ralentir |
+| `STOCKWATCH_QUIET_START` / `_END` | vide | Plage sans aucune vérification (ex. 20 et 7) |
+| `STOCKWATCH_TIMEZONE` | `Europe/Paris` | Fuseau des horaires de veille |
 | `STOCKWATCH_STATE_FILE` | `stockwatch-state.json` | Mémoire du stock et des abonnés |
 
 Le token, le cookie et le proxy sont chargés dans des `SecretStr` : ils
@@ -292,7 +341,7 @@ n'apparaissent ni dans les logs ni dans un `repr()`.
 
 ---
 
-## 6 bis. Mettre à jour
+## 10. Mettre à jour
 
 ```bash
 cd ~/Downloads/Hollister-main && bash update.sh
@@ -306,7 +355,7 @@ pas dans l'archive : ils restent en place. Dépôt privé → crée un token
 
 ---
 
-## 7. Déploiement 24/7
+## 11. Déploiement 24/7
 
 Le bot **n'écoute sur aucun port** : il ne fait que des requêtes sortantes. Il
 cohabite donc sans réglage avec n'importe quel autre service — il lui faut
@@ -432,13 +481,15 @@ d'alerte déjà envoyée.
 
 ---
 
-## 8. Architecture
+## 12. Architecture
 
 ```
 stockwatch/
 ├── __main__.py   CLI : `run` (défaut) et `diagnose`
 ├── app.py        câblage : bot Telegram + boucle de surveillance
-├── bot.py        commandes Telegram
+├── bot.py        commandes Telegram et menu à boutons
+├── keyboards.py  claviers inline
+├── schedule.py   veille nocturne (fuseau de l'utilisateur)
 ├── monitor.py    boucle, détection des transitions, backoff, /status
 ├── parsing.py    lecture du stock (JSON embarqué, ld+json, repli HTML)
 ├── client.py     client HTTP (connexion persistante, empreinte navigateur)
@@ -472,24 +523,24 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 108 tests
+python -m pytest -q        # 140 tests
 python -m ruff check .
 ```
 
 ---
 
-## 9. Honnêteté technique
+## 13. Honnêteté technique
 
 - **Le HTML de hollisterco.com ne porte pas le stock** (constaté en conditions
   réelles) : les tailles y sont listées, leur disponibilité est chargée ensuite
   en JavaScript. Tant que `STOCKWATCH_API_URL` ne pointe pas vers l'appel qui
-  porte le stock (voir §5 bis), le bot dira « surveillance dégradée » — c'est
+  porte le stock (voir §8), le bot dira « surveillance dégradée » — c'est
   volontaire : il ne devine pas. Une première version devinait, et a annoncé
   « XS, S disponibles » sur un produit intégralement épuisé ; c'est corrigé et
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 108 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 140 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

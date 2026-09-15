@@ -22,6 +22,7 @@ from .state import StateStore, apply_overrides
 logger = logging.getLogger(__name__)
 
 COMMANDS = [
+    BotCommand(command="menu", description="Tableau de bord"),
     BotCommand(command="start", description="Recevoir les alertes"),
     BotCommand(command="status", description="État de la surveillance"),
     BotCommand(command="check", description="Vérifier tout de suite"),
@@ -30,6 +31,7 @@ COMMANDS = [
     BotCommand(command="couleur", description="Choisir le coloris par son nom"),
     BotCommand(command="variante", description="Choisir le coloris par son identifiant"),
     BotCommand(command="intervalle", description="Délai entre deux vérifications"),
+    BotCommand(command="veille", description="Plage horaire sans vérification"),
     BotCommand(command="pause", description="Suspendre la surveillance"),
     BotCommand(command="reprendre", description="Relancer la surveillance"),
     BotCommand(command="stop", description="Ne plus recevoir les alertes"),
@@ -105,7 +107,7 @@ async def run(settings: StockWatchSettings) -> None:
                 silent=True,
             )
         # aiogram installs its own SIGINT/SIGTERM handlers and returns cleanly.
-        await dispatcher.start_polling(bot, allowed_updates=["message"])
+        await dispatcher.start_polling(bot, allowed_updates=["message", "callback_query"])
     finally:
         stop.set()
         watcher.cancel()

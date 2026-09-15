@@ -201,6 +201,10 @@ def apply_overrides(config: Any, overrides: dict[str, Any]) -> None:
     colour = overrides.get("product_color")
     if isinstance(colour, str):
         config.product_color = colour.strip()
+    for key in ("quiet_start", "quiet_end"):
+        hour = overrides.get(key)
+        if isinstance(hour, int) and -1 <= hour <= 23:
+            setattr(config, key, hour)
     paused = overrides.get("paused")
     if isinstance(paused, bool):
         config.paused = paused

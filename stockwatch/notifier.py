@@ -7,8 +7,9 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup
 
+from .keyboards import alert as alert_keyboard
 from .state import StateStore
 
 logger = logging.getLogger(__name__)
@@ -38,11 +39,7 @@ class TelegramNotifier:
         if not targets:
             logger.warning("Alert ready but nobody is subscribed — send /start to the bot.")
             return 0
-        markup = None
-        if url:
-            markup = InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="🛒 Ouvrir le produit", url=url)]]
-            )
+        markup = alert_keyboard(url) if url else None
         results = await asyncio.gather(
             *(self._send(chat_id, text, markup, silent) for chat_id in targets),
             return_exceptions=True,
