@@ -83,6 +83,8 @@ class Monitor:
             self.state.add_bytes(result.bytes_downloaded)
 
         if not result.ok:
+            if result.blocked:
+                self.state.bump("blocked")
             return self._record_failure(result, result.error or "unknown error")
 
         if result.not_modified:
@@ -290,8 +292,12 @@ class Monitor:
         if self.config.paused:
             return max(1.0, self.config.poll_interval)
         if self.consecutive_errors:
-            penalty = self.config.poll_interval * (2 ** min(self.consecutive_errors, 8))
-            return min(self.settings.max_backoff, max(self.config.poll_interval, penalty))
+            over = self.consecutive_errors - max(0, self.settings.failure_grace)
+            if over > 0:
+                penalty = self.config.poll_interval * (2 ** min(over, 8))
+                return min(self.settings.max_backoff, max(self.config.poll_interval, penalty))
+            # Dans la fenêtre de tolérance : on garde la cadence, la requête
+            # suivante a de bonnes chances de passer.
         if self.over_budget():
             self._warn_budget_once()
             return max(self.config.poll_interval, self.settings.throttled_interval)
@@ -362,6 +368,12 @@ class Monitor:
             lines.append(f"🚨 Dernière alerte : {self.last_alert_at.astimezone().strftime('%d/%m %H:%M:%S')}")
         checks = max(1, int(self.state.stats.get("checks", 0)))
         unchanged = int(self.state.stats.get("not_modified", 0))
+        blocked = int(self.state.stats.get("blocked", 0))
+        if blocked:
+            lines.append(
+                f"🚧 Refusées par le site : {blocked} ({blocked * 100 // checks} %) — "
+                "je réessaie à la cadence normale"
+            )
         today = self.bytes_today()
         lines.append(
             f"📡 Données : {_human_bytes(today)} aujourd'hui "

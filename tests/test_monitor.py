@@ -187,6 +187,7 @@ class TestFailures:
         assert any("rétablie" in m for m in fake_notifier.messages)
 
     async def test_backoff_grows_then_resets(self, settings, config, state, fake_notifier):
+        settings.failure_grace = 0   # ralentissement dès le premier échec
         monitor = build(settings, config, state, fake_notifier, ["<html></html>"])
         assert monitor._next_delay(0.0) == pytest.approx(config.poll_interval)
         await monitor.check_once()
@@ -206,3 +207,35 @@ class TestStatus:
         await drain(monitor)
         text = "\n".join(monitor.status_lines())
         assert "Tailles" in text and "XS" in text and "Abonnés" in text
+
+
+class TestIntermittentBlocking:
+    """Un CDN qui refuse une requête sur trois n'est pas une panne : ralentir
+    ferait rater le réassort que le bot est censé attraper."""
+
+    def _blocked(self):
+        return FetchResult(url="u", status_code=403, body="Access Denied", elapsed=0.01,
+                           error="HTTP 403", blocked=True)
+
+    async def test_cadence_is_kept_during_the_grace_window(self, settings, config, state, fake_notifier):
+        monitor = build(settings, config, state, fake_notifier, [self._blocked()])
+        for _ in range(3):
+            await monitor.check_once()
+        assert monitor.consecutive_errors == 3
+        assert monitor._next_delay(0.0) == pytest.approx(config.poll_interval)
+
+    async def test_backoff_starts_past_the_grace_window(self, settings, config, state, fake_notifier):
+        monitor = build(settings, config, state, fake_notifier, [self._blocked()])
+        for _ in range(5):
+            await monitor.check_once()
+        assert monitor._next_delay(0.0) > config.poll_interval
+
+    async def test_a_success_between_blocks_resets_everything(self, settings, config, state, fake_notifier):
+        bodies = [self._blocked(), self._blocked(), page(XS=False, S=False), self._blocked()]
+        monitor = build(settings, config, state, fake_notifier, bodies)
+        for _ in range(4):
+            await monitor.check_once()
+        await drain(monitor)
+        assert monitor.consecutive_errors == 1
+        assert monitor._next_delay(0.0) == pytest.approx(config.poll_interval)
+        assert state.stats["blocked"] == 3

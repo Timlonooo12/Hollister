@@ -269,6 +269,7 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_COOKIE` / `STOCKWATCH_PROXY_URL` | vide | Contournement d'un blocage |
 | `STOCKWATCH_CONDITIONAL_REQUESTS` | `true` | ETag : ne retélécharge la page que si elle a changé |
 | `STOCKWATCH_DAILY_BUDGET_MB` | `0` | Plafond de données par jour (0 = illimité) |
+| `STOCKWATCH_FAILURE_GRACE` | `3` | Échecs tolérés à cadence normale avant de ralentir |
 | `STOCKWATCH_STATE_FILE` | `stockwatch-state.json` | Mémoire du stock et des abonnés |
 
 Le token, le cookie et le proxy sont chargés dans des `SecretStr` : ils
@@ -316,7 +317,16 @@ sudo systemctl daemon-reload && sudo systemctl enable --now stockwatch
 journalctl -u stockwatch -f
 ```
 
-### Quand l'IP du serveur est bloquée
+### Quand le site refuse une partie des requêtes
+
+Constaté depuis un VPS OVH : environ une requête sur trois revient en `403`,
+les autres passent normalement. Le bot ne ralentit donc pas au premier refus —
+il retente à la cadence normale pendant `STOCKWATCH_FAILURE_GRACE` échecs
+(3 par défaut) avant de commencer à espacer. Ralentir dès le premier 403
+ferait rater exactement le réassort qu'on surveille. `/status` affiche la part
+de requêtes refusées.
+
+### Quand l'IP du serveur est bloquée en permanence
 
 Constaté sur un VPS OVH : `HTTP 403`, corps de 149 octets, « Bad Request /
 Reference ID » — le pare-feu applicatif du marchand refuse les adresses de
@@ -421,7 +431,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 92 tests
+python -m pytest -q        # 95 tests
 python -m ruff check .
 ```
 
@@ -438,7 +448,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 92 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 95 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

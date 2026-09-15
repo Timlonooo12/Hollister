@@ -69,6 +69,7 @@ class StateStore:
             "alerts": 0,
             "errors": 0,
             "not_modified": 0,
+            "blocked": 0,
             "bytes_total": 0,
             "bytes_today": 0,
             "bytes_day": "",

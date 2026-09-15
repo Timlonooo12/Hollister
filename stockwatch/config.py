@@ -93,6 +93,10 @@ class StockWatchSettings(BaseSettings):
     repeat_alert_minutes: int = Field(default=0, alias="STOCKWATCH_REPEAT_ALERT_MINUTES")
     # Consecutive failures before the bot warns that it can no longer read the page.
     error_alert_after: int = Field(default=12, alias="STOCKWATCH_ERROR_ALERT_AFTER")
+    # Échecs tolérés à cadence normale avant de commencer à ralentir. Un CDN
+    # qui refuse une requête sur trois n'est pas une panne : réessayer tout de
+    # suite passe souvent, alors que ralentir ferait rater le réassort.
+    failure_grace: int = Field(default=3, alias="STOCKWATCH_FAILURE_GRACE")
 
     # --- HTTP fingerprint ---
     user_agent: str = Field(default=DEFAULT_USER_AGENT, alias="STOCKWATCH_USER_AGENT")
