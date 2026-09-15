@@ -287,6 +287,18 @@ Il signale « surveillance dégradée » au lieu d'inventer une disponibilité.
 
 La solution est de lui donner l'appel réseau qui porte réellement le stock :
 
+Le plus simple : clic droit sur la ligne du **document** dans l'onglet Réseau →
+**Copier en tant que cURL**, puis sur le serveur :
+
+```bash
+python -m stockwatch cookie      # colle, puis Ctrl-D
+```
+
+La commande extrait le cookie du collage, l'écrit dans `.env` en `600` et ne
+l'affiche jamais en clair — ni les `;` à échapper, ni les guillemets à gérer.
+
+Pour trouver cette ligne :
+
 1. Ouvre la fiche produit dans Chrome ou Safari.
 2. **F12** (ou clic droit → Inspecter) → onglet **Réseau** → filtre **Fetch/XHR**.
 3. Recharge la page, puis clique une taille.
@@ -531,7 +543,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 146 tests
+python -m pytest -q        # 161 tests
 python -m ruff check .
 ```
 
@@ -548,7 +560,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 146 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 161 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

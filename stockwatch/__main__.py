@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from . import __version__
 from .app import StartupError, configure_logging, run
 from .config import load_settings
+from .cookie import run_cookie
 from .diagnose import run_diagnose
 from .probe import run_probe
 
@@ -40,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose.add_argument("--save", help="Enregistrer la réponse brute dans ce fichier")
     probe = sub.add_parser("probe", help="Chercher un endpoint plus léger que la page HTML")
     probe.add_argument("--url", help="Page à analyser (défaut : le produit configuré)")
+    cookie = sub.add_parser("cookie", help="Enregistrer un cookie de navigateur dans .env")
+    cookie.add_argument("--env", default=".env", help="Fichier .env à mettre à jour")
     return parser
 
 
@@ -54,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
         except BrokenPipeError:
             # `... | head` ferme le tuyau : ce n'est pas une erreur du diagnostic.
             return 0
+
+    if args.command == "cookie":
+        from pathlib import Path
+
+        return run_cookie(Path(args.env))
 
     if args.command == "probe":
         settings = load_settings(allow_missing_token=True)
