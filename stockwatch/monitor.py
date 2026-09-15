@@ -77,6 +77,7 @@ class Monitor:
         self._cookie_lock = asyncio.Lock()
         self._last_cookie_attempt: datetime | None = None
         self._browser_missing_notified = False
+        self.last_cookie_error: str | None = None
         self._last_sizes: dict[str, bool] = {}
         self._last_labels: dict[str, str] = {}
         self._budget_notified = False
@@ -389,18 +390,22 @@ class Monitor:
         age = self.state.session_age_minutes()
         return age is None or age >= self.settings.cookie_refresh_minutes
 
-    async def refresh_cookie(self, reason: str = "") -> bool:
+    async def refresh_cookie(self, reason: str = "", *, force: bool = False) -> bool:
         """Aller chercher un cookie neuf avec un navigateur headless.
 
         Un vrai navigateur obtient un cookie valide à chaque visite — c'est
         l'objet même du contrôle anti-bot. Les milliers de vérifications qui
         suivent restent de simples requêtes HTTP.
+
+        `force` ignore le délai entre deux tentatives : ce délai existe pour ne
+        pas lancer un navigateur à chaque vérification ratée, pas pour refuser
+        un appui volontaire sur un bouton.
         """
         if not self.settings.auto_cookie or self._cookie_lock.locked():
             return False
         async with self._cookie_lock:
             now = utcnow()
-            if self._last_cookie_attempt is not None:
+            if not force and self._last_cookie_attempt is not None:
                 since = (now - self._last_cookie_attempt).total_seconds() / 60
                 if since < self.settings.cookie_retry_minutes:
                     return False
@@ -411,10 +416,12 @@ class Monitor:
                 session = await fetch_session(self.config.product_url, locale=self.settings.accept_language)
             except BrowserUnavailable as exc:
                 logger.warning("Cookie non renouvelé : %s", exc)
+                self.last_cookie_error = str(exc)
                 self._warn_browser_missing(str(exc))
                 return False
             except Exception as exc:  # noqa: BLE001 - un échec ici ne doit pas tuer la boucle
                 logger.warning("Cookie non renouvelé : %s", exc)
+                self.last_cookie_error = f"{type(exc).__name__}: {exc}"
                 return False
 
             self.client.set_identity(session.cookie, session.user_agent)
@@ -423,6 +430,7 @@ class Monitor:
             # identité : on repart sur une base neuve.
             self._typical_body = 0
             self.state.bump("cookies_renewed")
+            self.last_cookie_error = None
             logger.info("Cookie renouvelé : %s", session.summary())
             self._spawn(
                 self.notifier.broadcast(

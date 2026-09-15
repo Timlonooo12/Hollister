@@ -357,14 +357,12 @@ async def cmd_cookie(message: Message, monitor: Monitor, settings: StockWatchSet
         await _deny(message)
         return
     notice = await message.answer("🍪 Ouverture d'un navigateur pour obtenir un cookie neuf…")
-    renewed = await monitor.refresh_cookie("demande manuelle")
+    renewed = await monitor.refresh_cookie("demande manuelle", force=True)
     if renewed:
         await notice.edit_text("✅ Cookie renouvelé. Vérifie avec <code>/check</code>.")
     else:
-        await notice.edit_text(
-            "⚠️ Cookie non renouvelé — soit le navigateur n'est pas installé sur le serveur, "
-            "soit une tentative vient d'avoir lieu. Détails dans <code>/status</code>."
-        )
+        detail = monitor.last_cookie_error or "raison inconnue"
+        await notice.edit_text(f"⚠️ <b>Cookie non renouvelé</b>\n\n<code>{html.escape(detail[:600])}</code>")
 
 
 @router.message(Command("pause"))
@@ -575,12 +573,12 @@ async def on_cookie(callback: CallbackQuery, config: WatchConfig, settings: Stoc
         await callback.answer("Réservé au propriétaire du bot.", show_alert=True)
         return
     await callback.answer("Ouverture d'un navigateur…")
-    renewed = await monitor.refresh_cookie("demande manuelle")
+    renewed = await monitor.refresh_cookie("demande manuelle", force=True)
+    detail = monitor.last_cookie_error or "raison inconnue"
     body = (
         "🍪 <b>Cookie renouvelé</b>\n\nLa surveillance repart avec une session neuve."
         if renewed
-        else ("⚠️ <b>Cookie non renouvelé</b>\n\nSoit le navigateur n'est pas installé sur le "
-              "serveur, soit une tentative vient d'avoir lieu.")
+        else f"⚠️ <b>Cookie non renouvelé</b>\n\n<code>{html.escape(detail[:600])}</code>"
     )
     if isinstance(callback.message, Message):
         with contextlib.suppress(TelegramBadRequest):

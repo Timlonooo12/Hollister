@@ -207,3 +207,36 @@ class TestHeadlessMarkers:
         from stockwatch.browser import _visible_user_agent
 
         assert _visible_user_agent(object()) is None
+
+
+class TestManualRequest:
+    """Le délai anti-rafale protège la boucle automatique, pas l'utilisateur
+    qui appuie lui-même sur le bouton."""
+
+    async def test_a_forced_request_ignores_the_delay(
+        self, settings, config, state, fake_notifier, monkeypatch
+    ):
+        fake_browser(monkeypatch, BrowserSession(cookie="a=1", user_agent="Chrome"))
+        monitor = build(settings, config, state, fake_notifier)
+
+        assert await monitor.refresh_cookie() is True
+        assert await monitor.refresh_cookie() is False              # trop tôt
+        assert await monitor.refresh_cookie(force=True) is True     # demandé à la main
+
+    async def test_the_last_error_is_kept_for_the_user(
+        self, settings, config, state, fake_notifier, monkeypatch
+    ):
+        fake_browser(monkeypatch, BrowserUnavailable("HTTP 403 · page vide"))
+        monitor = build(settings, config, state, fake_notifier)
+        await monitor.refresh_cookie(force=True)
+        assert "403" in (monitor.last_cookie_error or "")
+
+    async def test_a_success_clears_the_last_error(
+        self, settings, config, state, fake_notifier, monkeypatch
+    ):
+        fake_browser(monkeypatch, BrowserUnavailable("oups"))
+        monitor = build(settings, config, state, fake_notifier)
+        await monitor.refresh_cookie(force=True)
+        fake_browser(monkeypatch, BrowserSession(cookie="a=1", user_agent="Chrome"))
+        await monitor.refresh_cookie(force=True)
+        assert monitor.last_cookie_error is None
