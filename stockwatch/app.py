@@ -32,6 +32,7 @@ COMMANDS = [
     BotCommand(command="variante", description="Choisir le coloris par son identifiant"),
     BotCommand(command="intervalle", description="Délai entre deux vérifications"),
     BotCommand(command="veille", description="Plage horaire sans vérification"),
+    BotCommand(command="cookie", description="Obtenir un cookie neuf"),
     BotCommand(command="pause", description="Suspendre la surveillance"),
     BotCommand(command="reprendre", description="Relancer la surveillance"),
     BotCommand(command="stop", description="Ne plus recevoir les alertes"),
@@ -79,6 +80,12 @@ async def run(settings: StockWatchSettings) -> None:
     logger.info("Connecté à Telegram en tant que @%s", me.username)
 
     client = ProductClient(settings)
+    # Un cookie obtenu automatiquement lors d'une exécution précédente reste
+    # valable : le réutiliser évite de relancer un navigateur au démarrage.
+    stored = state.session.get("cookie")
+    if isinstance(stored, str) and stored:
+        client.set_identity(stored, state.session.get("user_agent") or None)
+        logger.info("Cookie mémorisé réutilisé (obtenu il y a %.0f min)", state.session_age_minutes() or 0)
     await client.start()
     notifier = TelegramNotifier(bot, state, settings.chat_ids)
     monitor = Monitor(settings, config, client, notifier, state)

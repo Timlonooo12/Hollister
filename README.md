@@ -290,6 +290,34 @@ Il signale « surveillance dégradée » au lieu d'inventer une disponibilité.
 
 La solution est de lui donner l'appel réseau qui porte réellement le stock :
 
+### Le renouveler tout seul (recommandé)
+
+Un cookie de contrôle expire en quelques heures : le recopier à la main à
+chaque fois n'est pas tenable. Installe un navigateur headless, une fois :
+
+```bash
+sudo /opt/stockwatch/.venv/bin/pip install playwright
+sudo /opt/stockwatch/.venv/bin/playwright install --with-deps chromium
+```
+
+Le bot ouvre alors la page dans ce navigateur dès qu'une lecture échoue, et à
+titre préventif toutes les trois heures. Un vrai navigateur obtient un cookie
+valide à chaque visite — c'est l'objet même du contrôle — et les milliers de
+vérifications qui suivent restent de simples requêtes HTTP. Le cookie obtenu
+est gardé dans le fichier d'état, jamais réécrit dans ton `.env`, et réutilisé
+au redémarrage.
+
+Pour vérifier l'installation, ou forcer un renouvellement :
+
+```bash
+python -m stockwatch cookie --auto     # en ligne de commande
+/cookie                                 # ou depuis Telegram (bouton 🍪)
+```
+
+`/status` indique l'âge du cookie et le nombre de renouvellements.
+
+### Le fournir à la main
+
 Le plus simple : clic droit sur la ligne du **document** dans l'onglet Réseau →
 **Copier en tant que cURL**, puis sur le serveur :
 
@@ -344,6 +372,8 @@ les valeurs commentées ; les principales :
 | `STOCKWATCH_ALERT_ON_FIRST_SEEN` | `true` | Alerter si déjà dispo au démarrage |
 | `STOCKWATCH_REPEAT_ALERT_MINUTES` | `0` | Rappel tant que c'est dispo (0 = aucun) |
 | `STOCKWATCH_COOKIE` / `STOCKWATCH_PROXY_URL` | vide | Contournement d'un blocage |
+| `STOCKWATCH_AUTO_COOKIE` | `true` | Renouveler le cookie seul (navigateur headless) |
+| `STOCKWATCH_COOKIE_REFRESH_MINUTES` | `180` | Âge au-delà duquel on en cherche un neuf |
 | `STOCKWATCH_CONDITIONAL_REQUESTS` | `true` | ETag : ne retélécharge la page que si elle a changé |
 | `STOCKWATCH_DAILY_BUDGET_MB` | `0` | Plafond de données par jour (0 = illimité) |
 | `STOCKWATCH_FAILURE_GRACE` | `3` | Échecs tolérés à cadence normale avant de ralentir |
@@ -512,6 +542,7 @@ stockwatch/
 ├── app.py        câblage : bot Telegram + boucle de surveillance
 ├── bot.py        commandes Telegram et menu à boutons
 ├── keyboards.py  claviers inline
+├── browser.py    renouvellement du cookie via un navigateur headless
 ├── schedule.py   veille nocturne (fuseau de l'utilisateur)
 ├── monitor.py    boucle, détection des transitions, backoff, /status
 ├── parsing.py    lecture du stock (JSON embarqué, ld+json, repli HTML)
@@ -546,7 +577,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 170 tests
+python -m pytest -q        # 178 tests
 python -m ruff check .
 ```
 
@@ -563,7 +594,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 170 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 178 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

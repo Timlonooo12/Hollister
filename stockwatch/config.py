@@ -132,6 +132,16 @@ class StockWatchSettings(BaseSettings):
     throttled_interval: float = Field(default=300.0, alias="STOCKWATCH_THROTTLED_INTERVAL")
     html_fallback: bool = Field(default=True, alias="STOCKWATCH_HTML_FALLBACK")
 
+    # --- Cookie automatique ---
+    # Renouveler le cookie tout seul avec un navigateur headless (Playwright).
+    # Sans Playwright installé, le bot se rabat sur STOCKWATCH_COOKIE.
+    auto_cookie: bool = Field(default=True, alias="STOCKWATCH_AUTO_COOKIE")
+    # Âge au-delà duquel on va en chercher un neuf, même si tout va bien.
+    cookie_refresh_minutes: int = Field(default=180, alias="STOCKWATCH_COOKIE_REFRESH_MINUTES")
+    # Délai minimal entre deux tentatives, pour ne pas lancer un navigateur à
+    # chaque vérification ratée.
+    cookie_retry_minutes: int = Field(default=10, alias="STOCKWATCH_COOKIE_RETRY_MINUTES")
+
     # --- Persistence ---
     state_file: Path = Field(default=Path("stockwatch-state.json"), alias="STOCKWATCH_STATE_FILE")
     log_level: str = Field(default="INFO", alias="STOCKWATCH_LOG_LEVEL")

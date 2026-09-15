@@ -114,6 +114,38 @@ def mask(value: str) -> str:
     return f"{len(names)} cookies ({len(value)} caractères) : {preview}"
 
 
+def run_auto(env_path: Path, url: str, locale: str) -> int:
+    """Obtenir un cookie via un navigateur headless et l'écrire dans .env.
+
+    Sert surtout à vérifier l'installation : une fois le bot lancé, il renouvelle
+    son cookie tout seul et le garde dans son fichier d'état.
+    """
+    import asyncio
+
+    from .browser import BrowserUnavailable, fetch_session
+
+    print(f"Ouverture de {url} dans un navigateur headless…")
+    try:
+        session = asyncio.run(fetch_session(url, locale=locale))
+    except BrowserUnavailable as exc:
+        print()
+        print(f"❌ {exc}")
+        return 1
+    except Exception as exc:  # noqa: BLE001 - message utile plutôt qu'une trace
+        print()
+        print(f"❌ Le navigateur n'a pas abouti : {exc}")
+        return 1
+
+    write_env(env_path, "STOCKWATCH_COOKIE", session.cookie)
+    write_env(env_path, "STOCKWATCH_USER_AGENT", session.user_agent)
+    print()
+    print(f"✅ Cookie obtenu et enregistré dans {env_path} — {mask(session.cookie)}")
+    print(f"✅ User-Agent repris du navigateur : {session.user_agent[:70]}")
+    print()
+    print("Le bot le renouvellera ensuite tout seul, sans repasser par cette commande.")
+    return 0
+
+
 def run_cookie(env_path: Path) -> int:
     print("Colle ici la requête copiée depuis le navigateur (clic droit sur la ligne du")
     print("document → « Copier en tant que cURL »), ou l'en-tête Cookie seul.")

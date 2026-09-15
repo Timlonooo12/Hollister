@@ -66,6 +66,9 @@ class ProductClient:
         # permet au serveur de répondre « 304 Not Modified » — quelques
         # centaines d'octets au lieu de la page entière.
         self._validators: dict[str, tuple[str | None, str | None]] = {}
+        # Cookie obtenu automatiquement, prioritaire sur celui du .env.
+        self._runtime_cookie: str | None = None
+        self._runtime_user_agent: str | None = None
 
     def _headers(self) -> dict[str, str]:
         # A full desktop-Chrome header set, client hints included. Bot filters
@@ -87,7 +90,11 @@ class ProductClient:
             "sec-ch-ua-platform": '"macOS"',
             "Priority": "u=0, i",
         }
-        if self._settings.cookie is not None:
+        if self._runtime_user_agent:
+            headers["User-Agent"] = self._runtime_user_agent
+        if self._runtime_cookie:
+            headers["Cookie"] = self._runtime_cookie
+        elif self._settings.cookie is not None:
             headers["Cookie"] = self._settings.cookie.get_secret_value()
         headers.update(self._settings.extra_headers)
         return headers
@@ -98,6 +105,21 @@ class ProductClient:
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+    def set_identity(self, cookie: str, user_agent: str | None = None) -> None:
+        """Remplacer le cookie (et l'empreinte qui va avec) à chaud.
+
+        Les validateurs sont oubliés au passage : ce qui avait été mémorisé
+        l'avait été sous l'ancienne identité.
+        """
+        self._runtime_cookie = cookie
+        if user_agent:
+            self._runtime_user_agent = user_agent
+        self.forget_validators()
+        if self._client is not None:
+            self._client.headers["Cookie"] = cookie
+            if user_agent:
+                self._client.headers["User-Agent"] = user_agent
 
     async def start(self) -> None:
         if self._client is not None:

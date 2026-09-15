@@ -40,6 +40,7 @@ HELP = (
     "/variante &lt;id&gt; — choisir le coloris par son identifiant\n"
     "/intervalle 1 — délai entre deux vérifications (secondes)\n"
     "/veille 20 7 — ne rien vérifier entre 20h et 7h (/veille off pour arrêter)\n"
+    "/cookie — aller chercher un cookie neuf avec un navigateur\n"
     "/pause et /reprendre — suspendre ou relancer la surveillance\n"
     "/id — afficher l'identifiant de ce chat\n"
     "/aide — ce message"
@@ -350,6 +351,22 @@ async def cmd_quiet(message: Message, command: CommandObject, config: WatchConfi
                              reply_markup=keyboards.quiet(config))
 
 
+@router.message(Command("cookie"))
+async def cmd_cookie(message: Message, monitor: Monitor, settings: StockWatchSettings) -> None:
+    if not _is_owner(message, settings):
+        await _deny(message)
+        return
+    notice = await message.answer("🍪 Ouverture d'un navigateur pour obtenir un cookie neuf…")
+    renewed = await monitor.refresh_cookie("demande manuelle")
+    if renewed:
+        await notice.edit_text("✅ Cookie renouvelé. Vérifie avec <code>/check</code>.")
+    else:
+        await notice.edit_text(
+            "⚠️ Cookie non renouvelé — soit le navigateur n'est pas installé sur le serveur, "
+            "soit une tentative vient d'avoir lieu. Détails dans <code>/status</code>."
+        )
+
+
 @router.message(Command("pause"))
 async def cmd_pause(message: Message, config: WatchConfig, store: StateStore, settings: StockWatchSettings) -> None:
     if not _is_owner(message, settings):
@@ -549,6 +566,25 @@ async def on_colour_set(callback: CallbackQuery, config: WatchConfig, store: Sta
         "<i>Vérifie avec « 🔎 Vérifier maintenant » que les tailles correspondent à la fiche.</i>"
     )
     await _show(callback, text, keyboards.colours(labels, colour), f"Coloris : {colour}")
+
+
+@router.callback_query(F.data == "nav:cookie")
+async def on_cookie(callback: CallbackQuery, config: WatchConfig, settings: StockWatchSettings,
+                    monitor: Monitor) -> None:
+    if not _owner_ok(callback, settings):
+        await callback.answer("Réservé au propriétaire du bot.", show_alert=True)
+        return
+    await callback.answer("Ouverture d'un navigateur…")
+    renewed = await monitor.refresh_cookie("demande manuelle")
+    body = (
+        "🍪 <b>Cookie renouvelé</b>\n\nLa surveillance repart avec une session neuve."
+        if renewed
+        else ("⚠️ <b>Cookie non renouvelé</b>\n\nSoit le navigateur n'est pas installé sur le "
+              "serveur, soit une tentative vient d'avoir lieu.")
+    )
+    if isinstance(callback.message, Message):
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_text(body, reply_markup=keyboards.back_only())
 
 
 @router.callback_query(F.data.in_({"nav:pause", "nav:resume"}))

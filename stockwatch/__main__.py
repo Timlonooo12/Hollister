@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from . import __version__
 from .app import StartupError, configure_logging, run
 from .config import load_settings
-from .cookie import run_cookie
+from .cookie import run_auto, run_cookie
 from .diagnose import run_diagnose
 from .probe import run_probe
 
@@ -43,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--url", help="Page à analyser (défaut : le produit configuré)")
     cookie = sub.add_parser("cookie", help="Enregistrer un cookie de navigateur dans .env")
     cookie.add_argument("--env", default=".env", help="Fichier .env à mettre à jour")
+    cookie.add_argument("--auto", action="store_true",
+                        help="Obtenir le cookie tout seul via un navigateur headless")
     return parser
 
 
@@ -61,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "cookie":
         from pathlib import Path
 
+        if args.auto:
+            settings = load_settings(allow_missing_token=True)
+            configure_logging(settings.log_level)
+            return run_auto(Path(args.env), settings.product_url, settings.accept_language)
         return run_cookie(Path(args.env))
 
     if args.command == "probe":

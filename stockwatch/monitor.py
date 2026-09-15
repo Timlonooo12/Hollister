@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from .browser import BrowserUnavailable, fetch_session
 from .client import FetchResult, ProductClient
 from .config import StockWatchSettings, WatchConfig
 from .notifier import TelegramNotifier
@@ -73,6 +74,9 @@ class Monitor:
         self._degraded_notified = False
         self._pending: set[asyncio.Task[object]] = set()
         self._typical_body = 0
+        self._cookie_lock = asyncio.Lock()
+        self._last_cookie_attempt: datetime | None = None
+        self._browser_missing_notified = False
         self._last_sizes: dict[str, bool] = {}
         self._last_labels: dict[str, str] = {}
         self._budget_notified = False
@@ -362,14 +366,86 @@ class Monitor:
                 self._leave_sleep()
                 if not self.config.paused:
                     try:
-                        await self.check_once()
+                        tick = await self.check_once()
                     except Exception:  # noqa: BLE001 - the loop must outlive any bug
                         logger.exception("Unexpected error during check")
                         self.consecutive_errors += 1
+                    else:
+                        # Un cookie périmé se voit à l'échec de lecture : c'est
+                        # le meilleur moment pour en chercher un neuf.
+                        if not tick.ok:
+                            await self.refresh_cookie("lecture impossible")
+                        elif self._cookie_is_stale():
+                            await self.refresh_cookie("renouvellement préventif")
                 delay = self._next_delay(time.perf_counter() - started)
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=delay)
         await self._drain()
+
+    # -- cookie automatique ------------------------------------------------
+    def _cookie_is_stale(self) -> bool:
+        if not self.settings.auto_cookie or self.settings.cookie_refresh_minutes <= 0:
+            return False
+        age = self.state.session_age_minutes()
+        return age is None or age >= self.settings.cookie_refresh_minutes
+
+    async def refresh_cookie(self, reason: str = "") -> bool:
+        """Aller chercher un cookie neuf avec un navigateur headless.
+
+        Un vrai navigateur obtient un cookie valide à chaque visite — c'est
+        l'objet même du contrôle anti-bot. Les milliers de vérifications qui
+        suivent restent de simples requêtes HTTP.
+        """
+        if not self.settings.auto_cookie or self._cookie_lock.locked():
+            return False
+        async with self._cookie_lock:
+            now = utcnow()
+            if self._last_cookie_attempt is not None:
+                since = (now - self._last_cookie_attempt).total_seconds() / 60
+                if since < self.settings.cookie_retry_minutes:
+                    return False
+            self._last_cookie_attempt = now
+
+            logger.info("Renouvellement du cookie (%s)…", reason or "demandé")
+            try:
+                session = await fetch_session(self.config.product_url, locale=self.settings.accept_language)
+            except BrowserUnavailable as exc:
+                logger.warning("Cookie non renouvelé : %s", exc)
+                self._warn_browser_missing(str(exc))
+                return False
+            except Exception as exc:  # noqa: BLE001 - un échec ici ne doit pas tuer la boucle
+                logger.warning("Cookie non renouvelé : %s", exc)
+                return False
+
+            self.client.set_identity(session.cookie, session.user_agent)
+            await self.state.remember_session(session.cookie, session.user_agent)
+            # La taille « habituelle » d'une page était celle vue sous l'ancienne
+            # identité : on repart sur une base neuve.
+            self._typical_body = 0
+            self.state.bump("cookies_renewed")
+            logger.info("Cookie renouvelé : %s", session.summary())
+            self._spawn(
+                self.notifier.broadcast(
+                    f"🍪 <b>Cookie renouvelé</b> ({html.escape(reason or 'demandé')})\n"
+                    f"{session.summary()} — la surveillance reprend normalement.",
+                    silent=True,
+                )
+            )
+            return True
+
+    def _warn_browser_missing(self, detail: str) -> None:
+        if self._browser_missing_notified:
+            return
+        self._browser_missing_notified = True
+        self._spawn(
+            self.notifier.broadcast(
+                "🍪 <b>Renouvellement automatique indisponible</b>\n"
+                f"<code>{html.escape(detail[:300])}</code>\n\n"
+                "Tant qu'il n'est pas installé, le cookie doit être renouvelé à la main "
+                "(<code>python -m stockwatch cookie</code>).",
+                silent=True,
+            )
+        )
 
     # -- veille nocturne ---------------------------------------------------
     def _enter_sleep(self) -> None:
@@ -518,6 +594,11 @@ class Monitor:
         if self.settings.daily_budget_mb > 0:
             state = "⚠️ atteint, cadence réduite" if self.over_budget() else "ok"
             lines.append(f"🎚 Budget : {self.settings.daily_budget_mb:g} Mo/jour ({state})")
+        age = self.state.session_age_minutes()
+        if age is not None:
+            renewed = int(self.state.stats.get("cookies_renewed", 0))
+            lines.append(f"🍪 Cookie : obtenu il y a {_humanize(timedelta(minutes=age))} "
+                         f"({renewed} renouvellement{'s' if renewed > 1 else ''})")
         lines.append(f"👥 Abonnés : {len(self.notifier.recipients())}")
         return lines
 

@@ -41,6 +41,7 @@ def home(config: WatchConfig, sleeping: bool) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=("😴 Veille" if sleeping else "🌙 Veille"), callback_data="nav:quiet"),
         ],
         [pause, InlineKeyboardButton(text="📊 Détails", callback_data="nav:status")],
+        [InlineKeyboardButton(text="🍪 Renouveler le cookie", callback_data="nav:cookie")],
         [
             InlineKeyboardButton(text="🛒 Ouvrir la fiche", url=config.product_url),
             InlineKeyboardButton(text="❓ Aide", callback_data="nav:help"),

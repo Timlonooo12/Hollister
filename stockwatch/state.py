@@ -64,6 +64,9 @@ class StateStore:
         self.subscribers: set[int] = set()
         self.sizes: dict[str, SizeState] = {}
         self.overrides: dict[str, Any] = {}
+        # Cookie renouvelé automatiquement : gardé ici plutôt que dans .env,
+        # pour ne jamais réécrire un fichier que l'utilisateur édite aussi.
+        self.session: dict[str, Any] = {}
         self.stats: dict[str, Any] = {
             "checks": 0,
             "alerts": 0,
@@ -71,6 +74,7 @@ class StateStore:
             "not_modified": 0,
             "blocked": 0,
             "partial_pages": 0,
+            "cookies_renewed": 0,
             "bytes_total": 0,
             "bytes_today": 0,
             "bytes_day": "",
@@ -94,6 +98,7 @@ class StateStore:
             if isinstance(payload, dict)
         }
         self.overrides = dict(raw.get("overrides") or {})
+        self.session = dict(raw.get("session") or {})
         stats = raw.get("stats")
         if isinstance(stats, dict):
             self.stats.update({k: stats.get(k, v) for k, v in self.stats.items()})
@@ -103,6 +108,7 @@ class StateStore:
             "subscribers": sorted(self.subscribers),
             "sizes": {size: state.to_json() for size, state in self.sizes.items()},
             "overrides": self.overrides,
+            "session": self.session,
             "stats": self.stats,
             "saved_at": utcnow().isoformat(),
         }
@@ -160,6 +166,18 @@ class StateStore:
             self.sizes[size].last_alert_at = utcnow()
 
     # -- overrides ---------------------------------------------------------
+    async def remember_session(self, cookie: str, user_agent: str) -> None:
+        self.session = {
+            "cookie": cookie,
+            "user_agent": user_agent,
+            "obtained_at": utcnow().isoformat(),
+        }
+        await self.save()
+
+    def session_age_minutes(self) -> float | None:
+        obtained = _parse_dt(self.session.get("obtained_at"))
+        return None if obtained is None else (utcnow() - obtained).total_seconds() / 60
+
     async def set_override(self, key: str, value: Any) -> None:
         self.overrides[key] = value
         await self.save()

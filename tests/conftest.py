@@ -53,6 +53,10 @@ class FakeClient:
     def forget_validators(self, url: str | None = None) -> None:
         self.forgotten = getattr(self, "forgotten", 0) + 1
 
+    def set_identity(self, cookie: str, user_agent: str | None = None) -> None:
+        self.identity = (cookie, user_agent)
+        self.forget_validators()
+
     async def aclose(self) -> None:
         return None
 
