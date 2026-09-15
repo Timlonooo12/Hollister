@@ -128,19 +128,19 @@ class Monitor:
                     "ajoute un cookie de navigateur (STOCKWATCH_COOKIE) ou espace les vérifications",
                     strategy=parsed.strategy,
                 )
-            if parsed.strategy == "json-ambiguous-products":
-                message = (
-                    "la page contient plusieurs produits (coloris, recommandations) et aucun ne "
-                    "correspond à l'identifiant de l'URL : impossible de savoir lequel est affiché. "
-                    "Lance `python -m stockwatch diagnose` puis choisis-le avec /variante <id>"
-                )
-            elif self.config.product_color and parsed.labels and not _colour_present(
+            if self.config.product_color and parsed.labels and not _colour_present(
                 parsed.labels, self.config.product_color
             ):
                 known = ", ".join(sorted(set(parsed.labels.values()))[:8]) or "aucun"
                 message = (
                     f"le coloris « {self.config.product_color} » n'apparaît plus dans la page. "
                     f"Coloris détectés : {known}. Choisis-en un avec /menu → 🎨 Coloris"
+                )
+            elif parsed.strategy == "json-ambiguous-products":
+                message = (
+                    "la page contient plusieurs produits (coloris, recommandations) et aucun ne "
+                    "correspond à l'identifiant de l'URL : impossible de savoir lequel est affiché. "
+                    "Lance `python -m stockwatch diagnose` puis choisis-le avec /variante <id>"
                 )
             elif parsed.strategy == "html-no-stock-state":
                 message = (
