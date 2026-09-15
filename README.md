@@ -273,7 +273,10 @@ chaque identifiant :
 ```
 
 Désigne alors le tien par son nom : `/couleur Blanc` sur Telegram (ou
-`STOCKWATCH_PRODUCT_COLOR=Blanc` dans `.env`). L'identifiant numérique reste
+`STOCKWATCH_PRODUCT_COLOR=Blanc` dans `.env`). Le français fonctionne même quand
+la page nomme ses données en anglais — « blanc » retrouve `white`, « bleu
+clair » retrouve `light blue` — parce que le libellé affiché est traduit alors
+que la donnée ne l'est pas. L'identifiant numérique reste
 possible via `/variante`, mais un nom de coloris se vérifie d'un coup d'œil sur
 la fiche, pas un nombre à huit chiffres.
 
@@ -543,7 +546,7 @@ Tests :
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q        # 161 tests
+python -m pytest -q        # 170 tests
 python -m ruff check .
 ```
 
@@ -560,7 +563,7 @@ python -m ruff check .
   couvert par un test de non-régression.
 - **Le lecteur n'a pas été validé contre la vraie page depuis l'environnement de
   développement** : `hollisterco.com` y était bloqué (sortie réseau filtrée).
-  Les 161 tests couvrent chaque format de réponse géré ; `diagnose` sert à
+  Les 170 tests couvrent chaque format de réponse géré ; `diagnose` sert à
   confirmer le format réellement servi et fournit les « Pistes » nécessaires
   pour écrire le lecteur manquant.
 - **Le stock affiché n'est pas une réservation.** Le bot te prévient, il

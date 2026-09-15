@@ -46,6 +46,23 @@ _SIZE_ALIASES: dict[str, str] = {
 
 _STRIP_PREFIXES = ("TAILLE", "SIZE", "TALLA", "GROSSE", "TAGLIA")
 
+# Une fiche affiche « Couleur : Blanc » mais nomme ses données « white » : le
+# libellé visible est traduit, pas la donnée. On rapproche donc les deux.
+_COLOUR_WORDS = {
+    "BLANC": "WHITE", "BLANCHE": "WHITE", "ECRU": "WHITE", "IVOIRE": "IVORY",
+    "NOIR": "BLACK", "NOIRE": "BLACK",
+    "GRIS": "GREY", "GRISE": "GREY", "GRAY": "GREY", "ANTHRACITE": "CHARCOAL",
+    "BLEU": "BLUE", "BLEUE": "BLUE", "MARINE": "NAVY", "CIEL": "SKY",
+    "VERT": "GREEN", "VERTE": "GREEN", "KAKI": "KHAKI", "OLIVE": "OLIVE",
+    "ROUGE": "RED", "BORDEAUX": "BURGUNDY",
+    "ROSE": "PINK", "FUCHSIA": "FUCHSIA", "CORAIL": "CORAL",
+    "JAUNE": "YELLOW", "ORANGE": "ORANGE", "VIOLET": "PURPLE", "MAUVE": "PURPLE",
+    "MARRON": "BROWN", "BRUN": "BROWN", "CHOCOLAT": "CHOCOLATE", "CAMEL": "CAMEL",
+    "BEIGE": "BEIGE", "CREME": "CREAM", "SABLE": "SAND", "TAUPE": "TAUPE",
+    "CLAIR": "LIGHT", "FONCE": "DARK", "FONCEE": "DARK", "PALE": "PALE",
+    "CHINE": "HEATHER", "CHINEE": "HEATHER", "DELAVE": "WASHED",
+}
+
 
 def _fold(value: str) -> str:
     """Upper-case, accent-free, punctuation-free form of `value`."""
@@ -614,19 +631,31 @@ def merge_observations(observations: list[SizeObservation]) -> dict[str, bool]:
     return merged
 
 
+def colour_tokens(value: str) -> frozenset[str]:
+    """Les mots d'un nom de coloris, sans accents ni casse, traduits.
+
+    Comparer des ensembles de mots plutôt que des chaînes permet de retrouver
+    « light blue » à partir de « bleu clair » : l'ordre des mots diffère d'une
+    langue à l'autre.
+    """
+    words = [_fold(word) for word in re.split(r"[^0-9A-Za-zÀ-ÿ]+", value) if word]
+    return frozenset(_COLOUR_WORDS.get(word, word) for word in words if word)
+
+
 def owners_matching_colour(labels: dict[str, str], wanted: str) -> list[str]:
     """Les produits dont le nom de coloris correspond à `wanted`.
 
-    Comparaison sans accents ni casse, par inclusion : « blanc » retrouve
-    « Blanc », « BLANC/WHITE » ou « Blanc cassé ».
+    Sans accents ni casse, et de part et d'autre de la traduction : « blanc »
+    retrouve « white », « bleu clair » retrouve « light blue », et « gris »
+    retrouve « light heather grey ».
     """
-    target = _fold(wanted)
+    target = colour_tokens(wanted)
     if not target:
         return []
-    exact = [owner for owner, label in labels.items() if _fold(label) == target]
+    exact = [owner for owner, label in labels.items() if colour_tokens(label) == target]
     if exact:
         return exact
-    return [owner for owner, label in labels.items() if target in _fold(label)]
+    return [owner for owner, label in labels.items() if target <= colour_tokens(label)]
 
 
 def parse_availability(

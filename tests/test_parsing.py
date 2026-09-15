@@ -315,6 +315,47 @@ class TestRealCatalogueSchemas:
         # « blan » correspond aux deux : on refuse.
         assert parse_availability(body, product_color="blan").strategy == "json-ambiguous-products"
 
+    HOLLISTER_COLOURS = {"1": "brown", "2": "light blue", "3": "light heather grey",
+                         "4": "lime", "5": "white"}
+
+    def test_a_french_colour_finds_its_english_data(self):
+        """La fiche affiche « Couleur : Blanc », la donnée dit « white » : le
+        libellé visible est traduit, pas la donnée."""
+        from stockwatch.parsing import owners_matching_colour
+
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "blanc") == ["5"]
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "Blanc") == ["5"]
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "white") == ["5"]
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "marron") == ["1"]
+
+    def test_word_order_differs_between_languages(self):
+        from stockwatch.parsing import owners_matching_colour
+
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "bleu clair") == ["2"]
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "light blue") == ["2"]
+
+    def test_a_partial_name_still_finds_its_colour(self):
+        from stockwatch.parsing import owners_matching_colour
+
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "gris") == ["3"]
+
+    def test_an_absent_colour_matches_nothing(self):
+        from stockwatch.parsing import owners_matching_colour
+
+        assert owners_matching_colour(self.HOLLISTER_COLOURS, "rouge") == []
+
+    def test_selection_by_french_name_reads_the_english_product(self):
+        payload = {"CACHE": {
+            "Product:1": {"productId": "1", "colorName": "white", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"}]},
+            "Product:2": {"productId": "2", "colorName": "lime", "skus": [
+                {"sizePrimary": "XS_p", "inventory": 4, "inventoryStatus": "InStock"}]},
+        }}
+        body = "<script>window['APOLLO_STATE__x'] = " + json.dumps(payload) + ";</script>"
+        result = parse_availability(body, product_color="blanc")
+        assert result.strategy == "json-couleur"
+        assert result.sizes == {"XS": False}
+
     def test_one_product_needs_no_disambiguation(self):
         payload = {"product": {"productId": "111", "skus": [
             {"sizePrimary": "XS_p", "inventory": 0, "inventoryStatus": "Unavailable"},
